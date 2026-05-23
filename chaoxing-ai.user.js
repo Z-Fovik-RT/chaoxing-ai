@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通AI助手
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.1.2
+// @version      1.1.3
 // @description  学习通全自动学习助手 | 10大AI模型 + 第三方题库 + 视频自动播放 + 字体解密 + 章节导航 + 粘贴解锁 + 自动提交
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -12,6 +12,7 @@
 // @tag          AI答题
 // @tag          自动刷课
 // @tag          超星
+// @tag          免费
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
 // @connect      *
@@ -160,6 +161,14 @@ function cxaiGetDisplayAnswer(answer, optionsArr) {
         var _q = _currentQuestionMeta.questionText.trim();
         if (_q.length > 5 && (_ans === _q || _ans.indexOf(_q) === 0)) {
             return '[⚠️ AI回显了题目，已跳过]';
+        }
+        // 增强：检查答案是否包含题目中的连续长片段（部分回显）
+        if (_q.length > 15 && _ans.length > 10) {
+            for (var _qi = 0; _qi <= _q.length - 15; _qi += 5) {
+                if (_ans.indexOf(_q.substring(_qi, _qi + 15)) !== -1) {
+                    return '[⚠️ AI回显了题目片段，已跳过]';
+                }
+            }
         }
     }
 
@@ -327,7 +336,9 @@ var CXAI_SYSTEM_PROMPT = `你是一个精确的答题助手。请严格按照要
 - 不要返回解释、分析、推理过程
 - 不要返回"答案是"、"正确选项是"等前缀
 - 不要返回题目中已有的文字
-- 只返回选项本身的完整内容`;
+- 不要复述题目内容，不要引用题目的任何片段
+- 只返回选项本身的完整内容，不要附加任何其他文字
+- 对于计算题，先在脑中完成计算，然后只输出最终答案对应的选项文本`;
 
 
 // 读取当前 Provider 配置
@@ -2021,7 +2032,7 @@ function startDoPhoneTimu(index, TimuList) {
         }
     }
 
-    _currentQuestionMeta = { index: index, total: TimuList.length, typeName: typeName }
+    _currentQuestionMeta = { index: index, total: TimuList.length, typeName: typeName, questionText: _question }
     switch (_type) {
         case 0: {
             //遍历选项列表
@@ -4308,6 +4319,22 @@ function cxaiIsGarbageAnswer(s) {
     if (/^[—\-–]?\s*[A-Za-z]\s*[.:：]?\s*(正确|错误|对|错|是|否|√|×)\s*$/.test(str)) return true;
     // 过短且不含有效内容（2个字符以内，且不是有意义的单字答案）
     if (str.length <= 2 && !/^[\u4e00-\u9fa5a-zA-Z0-9]+$/.test(str)) return true;
+    // ★ 题目回显检测：AI返回了题目文本的片段而非答案
+    if (_currentQuestionMeta && _currentQuestionMeta.questionText) {
+        var _qText = _currentQuestionMeta.questionText.trim();
+        // 检查答案是否与题目有大量重叠（包含题目中连续15字以上的片段）
+        if (_qText.length > 15 && str.length > 10) {
+            for (var qi = 0; qi <= _qText.length - 15; qi++) {
+                var _frag = _qText.substring(qi, qi + 15);
+                if (str.indexOf(_frag) !== -1) {
+                    console.log('[CXAI] 检测到答案回显题目片段: "' + _frag + '"');
+                    return true;
+                }
+            }
+        }
+    }
+    // ★ 推理过程检测：AI返回了推理/分析文本而非答案（含常见推理关键词且长度较长）
+    if (str.length > 15 && /^(我们需要|首先|根据题目|由题意|设|令|假设|由于|因为|所以|通过计算|经过|分析|让我们|我们来|下面|接下来)/i.test(str)) return true;
     return false;
 }
 
@@ -4505,8 +4532,30 @@ function getAnswer(_t, _q, retryCount = 0) {
             if (requestCompleted) return;
             var _ans = isFromBank ? answer.trim() : answer.replace(/[。.]$/, '').replace(/^[A-Z]\s*\n\s*/, '').trim();
 
+            // ★ 题目回显检测（增强版）：如果答案与题目有大量文本重叠，说明AI在复述题目
+            if (!isFromBank && _currentQuestionMeta && _currentQuestionMeta.questionText) {
+                var _qFull = _currentQuestionMeta.questionText.trim();
+                if (_qFull.length > 10 && _ans.length > 10) {
+                    // 计算答案与题目的重叠字符数
+                    var _overlapCount = 0;
+                    var _checkFragments = function(src, target) {
+                        var count = 0;
+                        for (var fi = 0; fi <= src.length - 8; fi++) {
+                            if (target.indexOf(src.substring(fi, fi + 8)) !== -1) count++;
+                        }
+                        return count;
+                    };
+                    _overlapCount = Math.max(_checkFragments(_ans, _qFull), _checkFragments(_qFull, _ans));
+                    // 如果重叠片段超过5个（约40字重叠），判定为题目回显
+                    if (_overlapCount > 5) {
+                        console.log('[CXAI] 检测到答案回显题目(重叠' + _overlapCount + '段): "' + _ans.slice(0, 40) + '..."');
+                        _ans = '';
+                    }
+                }
+            }
+
             // ★ 剥离 AI 常见答案前缀（"正确答案："、"答案："、"参考答案：" 等），防止长答案被误判垃圾
-            if (!isFromBank) {
+            if (!isFromBank && _ans.length > 0) {
                 var _stripped = _ans.replace(/^(有正确答案|正确答案|参考答案|答案|该题答案)\s*[：:，,。\s]*/i, '').trim();
                 if (_stripped.length > 0 && _stripped.length < _ans.length) {
                     console.log('[CXAI] 剥离答案前缀: "' + _ans.slice(0, 30) + '..." → "' + _stripped.slice(0, 30) + '..."');
@@ -5137,9 +5186,14 @@ function tidyQuestion(s) {
 function decryptFont() {
     var $tip = $('style:contains(font-cxsecret)');
     if (!$tip.length) return;
-    var font = $tip.text().match(/base64,([\w\W]+?)'/)[1];
-    font = Typr.parse(base64ToUint8Array(font))[0];
-    var table = JSON.parse(GM_getResourceText('Table'));
+    var fontMatch = $tip.text().match(/base64,([\w\W]+?)'/);
+    if (!fontMatch || !fontMatch[1]) { console.warn('[ChaoxingAI] decryptFont: 未找到字体 base64 数据'); return; }
+    font = Typr.parse(base64ToUint8Array(fontMatch[1]));
+    if (!font || !font[0]) { console.warn('[ChaoxingAI] decryptFont: 字体解析失败'); return; }
+    font = font[0];
+    var tableText = GM_getResourceText('Table');
+    if (!tableText) { console.warn('[ChaoxingAI] decryptFont: 字体映射表加载失败，跳过解密'); return; }
+    var table = JSON.parse(tableText);
     var match = {};
     for (var i = 19968; i < 40870; i++) {
         $tip = Typr.U.codeToGlyph(font, i);
