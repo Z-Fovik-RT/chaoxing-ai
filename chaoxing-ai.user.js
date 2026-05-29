@@ -1,7 +1,7 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name         学习通AI助手
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.1.3
+// @version      1.2.0
 // @description  学习通全自动学习助手 | 10大AI模型 + 第三方题库 + 视频自动播放 + 字体解密 + 章节导航 + 粘贴解锁 + 自动提交
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -64,19 +64,19 @@ var PROVIDERS = {
     qwen: {
         name: '通义千问 (Qwen)',
         endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-        models: ['qwen3.6-plus', 'qwen3.6', 'qwen3.5-omni', 'qwen-turbo', 'qwen-plus', 'qwen-max'],
+        models: ['qwen3.7-max', 'qwen3.6-plus', 'qwen3.6-flash', 'qwen3.5-omni-plus', 'qwen3.5-omni', 'qwen-turbo'],
         authType: 'bearer', format: 'openai',
     },
     zhipu: {
         name: '智谱 (GLM)',
         endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-        models: ['glm-4.7', 'glm-4.7-flash', 'glm-4.6', 'glm-4-plus', 'glm-4'],
+        models: ['glm-5', 'glm-4.7', 'glm-4.7-flash', 'glm-4.6', 'glm-4.5'],
         authType: 'bearer', format: 'openai',
     },
     kimi: {
         name: 'Kimi (Moonshot)',
         endpoint: 'https://api.moonshot.cn/v1/chat/completions',
-        models: ['kimi-k2.6', 'kimi-k2-turbo-preview', 'moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-8k'],
+        models: ['kimi-k2.6', 'kimi-k2.5', 'kimi-k2-turbo-preview', 'moonshot-v1-128k', 'moonshot-v1-32k'],
         authType: 'bearer', format: 'openai',
     },
     openai: {
@@ -88,7 +88,7 @@ var PROVIDERS = {
     claude: {
         name: 'Claude (Anthropic)',
         endpoint: 'https://api.anthropic.com/v1/messages',
-        models: ['claude-opus-4.6', 'claude-sonnet-4.6', 'claude-haiku-4.5'],
+        models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
         authType: 'x-api-key', format: 'anthropic',
     },
     ernie: {
@@ -100,7 +100,7 @@ var PROVIDERS = {
     doubao: {
         name: '豆包 (Doubao)',
         endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-        models: ['doubao-seed-2.0-pro-256k', 'doubao-seed-2.0-lite-256k', 'doubao-seed-2.0-code', 'doubao-seed-2.0-mini'],
+        models: ['doubao-seed-2.0-pro-256k', 'doubao-seed-2.0-lite-256k', 'doubao-seed-1.8', 'doubao-seed-1.6-flash', 'doubao-seed-2.0-code', 'doubao-seed-2.0-mini'],
         authType: 'bearer', format: 'openai',
     },
     mimo: {
@@ -112,7 +112,7 @@ var PROVIDERS = {
     siliconflow: {
         name: '硅基流动 (SiliconFlow)',
         endpoint: 'https://api.siliconflow.cn/v1/chat/completions',
-        models: ['DeepSeek-V4-Pro', 'Qwen/Qwen3.6-35B-A3B', 'THUDM/glm-4.7', 'meta-llama/Meta-Llama-3.1-70B-Instruct', 'Kimi/K2.6'],
+        models: ['DeepSeek-V4-Pro-Max', 'DeepSeek-V4-Pro', 'DeepSeek-V4-Flash', 'Qwen/Qwen3.6-35B-A3B', 'THUDM/glm-5', 'THUDM/glm-4.7', 'Kimi/K2.6'],
         authType: 'bearer', format: 'openai',
     },
 };
@@ -130,7 +130,7 @@ var setting = {
     review: 0,      // 复习模式，0为关闭，1为开启可以补挂视频时长
 
     work: 1,        // 测验自动处理，0为关闭，1为开启，开启将会处理测验，关闭会跳过测验
-    time: 2500,     // 答题时间间隔，默认5s=5000
+    time: 2500,     // 答题时间间隔，默认2.5s=2500
     reqIntervalTime: 3, // 搜题（AI）请求最小间隔(秒)。0 为不节流；高并发可设 1~3 秒，避免被服务端限流
     sub: 0,         // 测验自动提交，0为关闭,1为开启，当没答案时测验将不会提交，如需提交请设置force：1
     force: 0,       // 测验强制提交，0为关闭，1为开启，开启此功能将会强制提交测验（无论作答与否）
@@ -322,23 +322,14 @@ function cxaiGetModelParams(questionType) {
 }
 
 
-var CXAI_SYSTEM_PROMPT = `你是一个精确的答题助手。请严格按照要求的格式回答。
+var CXAI_SYSTEM_PROMPT = `你是一个答题助手，只输出答案，不要任何解释。
+单选题：只回复一个大写字母，例如 B
+多选题：只回复字母，用逗号分隔，例如 A,C,D
+填空题：只回复答案文本，多个空用逗号分隔
+判断题：只回复 A（表示正确）或 B（表示错误）
+简答题：直接返回答案内容
 
-【回答规则】
-- 单选题：只返回正确选项的**完整文本**（必须与选项内容完全一致）
-- 多选题：返回所有正确选项的完整文本，用"|"分隔
-- 填空题：只返回答案内容，多个空用"|"分隔
-- 判断题：只返回"正确"或"错误"
-- 简答题：直接返回答案内容
-
-【禁止事项】
-- 不要返回选项序号（如A、B、C、D）
-- 不要返回解释、分析、推理过程
-- 不要返回"答案是"、"正确选项是"等前缀
-- 不要返回题目中已有的文字
-- 不要复述题目内容，不要引用题目的任何片段
-- 只返回选项本身的完整内容，不要附加任何其他文字
-- 对于计算题，先在脑中完成计算，然后只输出最终答案对应的选项文本`;
+重要：不要输出题号、不要输出解析、不要输出多余文字。只输出答案字母或答案文本。`;
 
 
 // 读取当前 Provider 配置
@@ -516,6 +507,56 @@ function cxaiExtractLetterIndices(answerStr, optionCount) {
     return indices.length > 0 ? indices : null;
 }
 
+
+
+function cxaiExtractImages(htmlStr) {
+    if (!htmlStr) return [];
+    var imgs = [];
+    var re = /<img[^>]+src=["']([^"']+)["'][^>]*/gi;
+    var m;
+    while ((m = re.exec(htmlStr)) !== null) {
+        if (m[1] && m[1].indexOf('data:') === -1) { imgs.push(m[1]); }
+    }
+    return imgs;
+}
+
+function cxaiMatchByLetter(answerStr, optionCount) {
+    if (!answerStr || !optionCount) return -1;
+    var s = answerStr.replace(/[\s\u3000]+/g, '').trim();
+    var m = s.match(/([A-Ga-g])(?=[^A-Za-z\u4e00-\u9fa5]*$)/);
+    if (!m) {
+        m = s.match(/[\u201c\u201d\u2018\u2019\u300c]([A-Ga-g])[\u201c\u201d\u2018\u2019\u300d]/);
+    }
+    if (!m || !m[1]) {
+        var _pure = s.replace(/[^A-Za-z]/g, '');
+        if (_pure.length === 1 && /[A-Ga-g]/.test(_pure)) {
+            var _idx = _pure.toUpperCase().charCodeAt(0) - 65;
+            if (_idx >= 0 && _idx < optionCount) return _idx;
+        }
+    }
+    if (m && m[1]) {
+        var idx = m[1].toUpperCase().charCodeAt(0) - 65;
+        if (idx >= 0 && idx < optionCount) return idx;
+    }
+    return -1;
+}
+
+function cxaiMatchMultipleByLetter(answerStr, optionCount) {
+    if (!answerStr || !optionCount) return [];
+    var s = answerStr.replace(/[\s\u3000]+/g, '').trim();
+    var letters = s.match(/[A-Ga-g]/g);
+    if (!letters || letters.length < 2) return [];
+    var indices = [];
+    var seen = {};
+    for (var i = 0; i < letters.length; i++) {
+        var idx = letters[i].toUpperCase().charCodeAt(0) - 65;
+        if (idx >= 0 && idx < optionCount && !seen[idx]) {
+            seen[idx] = true;
+            indices.push(idx);
+        }
+    }
+    return indices.length >= 2 ? indices : [];
+}
 
 function cxaiFindAnswerIndex(optionsArr, answerStr) {
     // ★ 优先：数字索引直接使用（题库返回的索引号）
@@ -705,7 +746,7 @@ function stringSimilarity(s1, s2) {
 }
 
 
-function findBestFuzzyMatch(optionTexts, aiAnswer, threshold) {
+function findBestFuzzyMatch(optionTexts, aiAnswer, threshold, silent) {
     if (!isFuzzyMatchEnabled()) return -1;
     if (!aiAnswer || !optionTexts || optionTexts.length === 0) return -1;
     threshold = (threshold !== undefined) ? threshold : 0.5;
@@ -718,10 +759,10 @@ function findBestFuzzyMatch(optionTexts, aiAnswer, threshold) {
         }
     }
     if (bestScore >= threshold) {
-        logger('相似度匹配: 最佳匹配项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
+        if (!silent) logger('相似度匹配: 最佳匹配项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
         return bestIndex;
     }
-    logger('相似度匹配: 所有选项相似度均低于阈值(' + (threshold * 100) + '%)，最高=' + (bestScore * 100).toFixed(1) + '%', 'orange');
+    if (!silent) logger('相似度匹配: 所有选项相似度均低于阈值(' + (threshold * 100) + '%)，最高=' + (bestScore * 100).toFixed(1) + '%', 'orange');
     return -1;
 }
 
@@ -764,8 +805,8 @@ function getRate() {
 function parseJudgeAnswer(agrs) {
     if (!agrs) return null;
     var s = agrs.replace(/[。，.,!！\s]/g, '').toLowerCase();
-    var trueWords = ['正确', '是', '对', '√', 't', 'true', 'ri', 'right', 'yes'];
-    var falseWords = ['错误', '否', '错', '×', 'f', 'false', 'wr', 'wrong', 'no'];
+    var trueWords = ['正确', '是', '对', '√', 't', 'true', 'ri', 'right', 'yes', 'a'];
+    var falseWords = ['错误', '否', '错', '×', 'f', 'false', 'wr', 'wrong', 'no', 'b'];
     // 精确匹配
     for (var i = 0; i < trueWords.length; i++) {
         if (s === trueWords[i]) return 'true';
@@ -970,7 +1011,7 @@ function showBox() {
                         <p></p>
                         <label class="cxai-field" title="AI代理服务器地址（留空则使用上方Provider直连）">代理地址(可选)：<input type="text" id="cxaiSetting.apiHost" class="cxai-select" placeholder="https://your-domain.com" style="width:100%;margin-top:2px;"></label>
                         <p></p>
-                        <label class="cxai-field" title="自定义题库API地址（POST {question,options,type} → {answer:{allAnswer:[...]}}）">自定义题库URL：<input type="text" id="cxaiSetting.questionBankUrl" class="cxai-select" placeholder="https://xxx.com/api/xxx" style="width:100%;margin-top:2px;"></label>
+                        <label><input type="checkbox" id="cxaiSetting.searchEnabled" checked>启用搜题</label>
                         <label><input type="checkbox" id="cxaiSetting.thirdPartyApi">启用第三方题库（lyck6.cn）</label>
                         <label class="cxai-field" id="cxai-tp-token-row" style="display:none" title="10位付费token，留空走免费接口">第三方题库Token：<input type="password" id="cxaiSetting.thirdPartyToken" class="cxai-select" placeholder="留空=免费接口" maxlength="10" style="width:100%;margin-top:2px;"></label>
                         <p></p>
@@ -1110,7 +1151,7 @@ function showBox() {
                 localStorage.setItem('cxaiSetting.fuzzyMatch', 'true');
             }
 
-            ['sub', 'force', 'examTurn', 'goodStudent', 'alterTitle', 'redo', 'fuzzyMatch', 'unlockPaste', 'thirdPartyApi'].forEach(function (settingId) {
+            ['sub', 'force', 'examTurn', 'goodStudent', 'alterTitle', 'redo', 'fuzzyMatch', 'unlockPaste', 'thirdPartyApi', 'searchEnabled'].forEach(function (settingId) {
                 var checkbox = document.getElementById('cxaiSetting.' + settingId);
                 if (!checkbox) return;
                 checkbox.addEventListener('change', updateLocalStorage);
@@ -1125,14 +1166,6 @@ function showBox() {
             }
 
 
-            // 题库配置：自定义题库URL
-            var qbUrlInput = document.getElementById('cxaiSetting.questionBankUrl');
-            if (qbUrlInput) {
-                qbUrlInput.value = localStorage.getItem('cxaiSetting.questionBankUrl') || '';
-                qbUrlInput.addEventListener('change', function () {
-                    localStorage.setItem('cxaiSetting.questionBankUrl', qbUrlInput.value.replace(/\/+$/, ''));
-                });
-            }
             // 第三方题库 Token 行显隐
             var tpApiCb = document.getElementById('cxaiSetting.thirdPartyApi');
             var tpTokenRow = document.getElementById('cxai-tp-token-row');
@@ -1977,7 +2010,9 @@ function startDoPhoneTimu(index, TimuList) {
     let contextWindow = TimuList[index] ? (TimuList[index].ownerDocument.defaultView || unsafeWindow) : unsafeWindow;
     let questionFull = $(TimuList[index]).find('.Py-m1-title').html()
     let _question = tidyQuestion(questionFull).replace(/.*?\[.*?题\]\s*\n\s*/, '').trim()
-    let typeName = questionFull.match(/.*?\[(.*?)]|$/)[1];
+    let _questionImages = cxaiExtractImages(questionFull)
+    if (_questionImages.length > 0) { logger('检测到题目包含 ' + _questionImages.length + ' 张图片', 'blue') }
+    let typeName = questionFull.match(/.*?[\[(](.*?)[\])]|$/)[1];
     let _type = ({
         单选题: 0, 单项选择题: 0, 单选: 0, 选择题: 0,
         多选题: 1, 多项选择题: 1, 多选: 1,
@@ -2046,6 +2081,7 @@ function startDoPhoneTimu(index, TimuList) {
 
             _question = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
             //判断题目是否已作答
+            var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if ($(_answerTmpArr[i]).attr('aria-label')) {
                     if (!isRedoMode()) {
@@ -2053,7 +2089,7 @@ function startDoPhoneTimu(index, TimuList) {
                         check_answer_flag = 1;
                         setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
                     } else {
-                        logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue')
+                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).click()
@@ -2069,12 +2105,14 @@ function startDoPhoneTimu(index, TimuList) {
                     $.each(_answerTmpArr, (i, t) => {
                         _a.push(tidyStr($(t).html()).replace(/^[A-Z]\s*\n\s*/, '').trim())
                     })
-                    let _i = cxaiFindAnswerIndex(_a, agrs)
+                    let _i = cxaiMatchByLetter(agrs, _a.length);
+                    if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
+                    if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                    if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                     if (_i == -1) {
                         logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                         // setting.sub = 0
-                        localStorage.setItem('cxaiSetting.sub', false)
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                     } else {
                         if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
                             $(_answerTmpArr[_i]).find('span').css('font-weight', 'bold');
@@ -2082,12 +2120,10 @@ function startDoPhoneTimu(index, TimuList) {
                             $(_answerTmpArr[_i]).click()
                         }
                         logger('自动答题成功，准备切换下一题', 'green')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                     }
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
                 })
             }
         }
@@ -2103,6 +2139,7 @@ function startDoPhoneTimu(index, TimuList) {
             mergedAnswers = mergedAnswers.join("|");
             _question = buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
             //判断题目是否已作答
+            var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if ($(_answerTmpArr[i]).attr('aria-label')) {
                     if (!isRedoMode()) {
@@ -2111,7 +2148,7 @@ function startDoPhoneTimu(index, TimuList) {
                         setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
                         break
                     } else {
-                        logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue')
+                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).click()
@@ -2126,17 +2163,24 @@ function startDoPhoneTimu(index, TimuList) {
                     if (agrs == '暂无答案') {
                         logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                         // setting.sub = 0
-                        localStorage.setItem('cxaiSetting.sub', false)
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                     } else {
                         _answerTmpArr = $(TimuList[index]).find('.answerList.multiChoice li')
                         let _multiOptions = []
                         $.each(_answerTmpArr, (i, t) => {
                             _multiOptions.push(tidyStr($(t).html()).replace(/^[A-Z]\s*\n\s*/, '').trim())
                         })
-                        let _matchedIndices = cxaiFindMultipleIndices(_multiOptions, agrs)
+                        let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _multiOptions.length);
+                        if (_matchedIndices.length === 0) {
+                            $.each(_multiOptions, function(i, t) {
+                                if (agrs.indexOf(_multiOptions[i]) !== -1) _matchedIndices.push(i);
+                            });
+                        }
+                        if (_matchedIndices.length === 0) {
+                            _matchedIndices = cxaiFindMultipleIndices(_multiOptions, agrs);
+                        }
                         if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
-                            for (var fi = 0; fi < _matchedIndices.length; fi++) {
+                            for (let fi = 0; fi < _matchedIndices.length; fi++) {
                                 $(_answerTmpArr[_matchedIndices[fi]]).find('span').css('font-weight', 'bold');
                             }
                         } else {
@@ -2159,13 +2203,11 @@ function startDoPhoneTimu(index, TimuList) {
                             } else {
                                 logger('部分选项未能选中，请手动确认', 'orange')
                             }
-                            setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                            setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         }, _totalWait)
                     }
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
                 })
             }
         }
@@ -2190,8 +2232,7 @@ function startDoPhoneTimu(index, TimuList) {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
                         logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        localStorage.setItem('cxaiSetting.sub', false)
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
                     let answers = agrs.split('|')
@@ -2249,10 +2290,8 @@ function startDoPhoneTimu(index, TimuList) {
                     })
 
                     setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time + 300 * editorBlocks.length)
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
                 })
             } else if (tkList && tkList.length > 0) {
                 // 普通input模式（旧版页面）
@@ -2265,8 +2304,7 @@ function startDoPhoneTimu(index, TimuList) {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
                         logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        localStorage.setItem('cxaiSetting.sub', false)
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
                     let answers = agrs.split('|')
@@ -2278,16 +2316,13 @@ function startDoPhoneTimu(index, TimuList) {
                             $(t).trigger('input').trigger('change')
                         }, 200)
                     })
+                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                }).catch(() => {
                     setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }
                 })
             } else {
                 logger('未找到填空题输入区域，跳过此题', 'red')
-                localStorage.setItem('cxaiSetting.sub', false)
-                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
             }
             break
         }
@@ -2297,6 +2332,7 @@ function startDoPhoneTimu(index, TimuList) {
                 _a.push($(t).text().trim())
             })
             //判断题目是否已作答
+            var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if ($(_answerTmpArr[i]).attr('aria-label')) {
                     if (!isRedoMode()) {
@@ -2304,7 +2340,7 @@ function startDoPhoneTimu(index, TimuList) {
                         check_answer_flag = 1;
                         setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
                     } else {
-                        logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue')
+                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).click()
@@ -2320,13 +2356,13 @@ function startDoPhoneTimu(index, TimuList) {
                     let judgeResult = parseJudgeAnswer(agrs)
                     if (judgeResult === null) {
                         logger('答案匹配出错，准备切换下一题', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
                     let _i = findJudgeOptionIndex(_a, judgeResult === 'true')
                     if (_i === -1) {
                         logger('未匹配到正确选项，跳过', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
                     setTimeout(() => {
@@ -2336,12 +2372,10 @@ function startDoPhoneTimu(index, TimuList) {
                             $(_answerTmpArr[_i]).click()
                         }
                         logger('自动答题成功，准备切换下一题', 'green')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                     }, 300)
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
                 })
             }
             break
@@ -2368,8 +2402,7 @@ function startDoPhoneTimu(index, TimuList) {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
                         logger('AI无法匹配答案，请手动完成', 'red')
-                        localStorage.setItem('cxaiSetting.sub', false)
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
 
@@ -2438,11 +2471,9 @@ function startDoPhoneTimu(index, TimuList) {
                         }
                     }
 
+                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                }).catch(() => {
                     setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }
                 })
             }
             // 如果没有编辑器，但有textarea，直接使用textarea
@@ -2457,24 +2488,20 @@ function startDoPhoneTimu(index, TimuList) {
                         agrs = String(agrs);
                         if (agrs == '暂无答案') {
                             logger('AI无法匹配答案，请手动完成', 'red')
-                            localStorage.setItem('cxaiSetting.sub', false)
                         } else {
                             $(jdTextareas[0]).val(agrs)
                             $(jdTextareas[0]).trigger('input').trigger('change')
                             logger('简答题自动答题成功，准备切换下一题', 'green')
                         }
+                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                    }).catch(() => {
                         setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                    }).catch((agrs) => {
-                        if (agrs && agrs['c'] == 0) {
-                            setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                        }
                     })
                 }
             }
             // 如果以上方法都失败
             else {
                 logger('无法找到简答题输入区域，请手动完成', 'red')
-                localStorage.setItem('cxaiSetting.sub', false)
                 setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
             }
             break
@@ -2482,20 +2509,16 @@ function startDoPhoneTimu(index, TimuList) {
         case 5: {
             getAnswer(_type, _question).then((agrs) => {
                 // setting.sub = 0
-                localStorage.setItem('cxaiSetting.sub', false)
                 logger('此类型题目无法区分单/多选，请手动选择答案', 'red')
+                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+            }).catch(() => {
                 setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-            }).catch((agrs) => {
-                if (agrs['c'] == 0) {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
-                }
             })
             break
         }
         default:
             logger('暂不支持处理此类型题目：' + questionFull.match(/.*?\[(.*?)]|$/)[1] + '，跳过！请手动作答。', 'red')
             // setting.sub = 0
-            localStorage.setItem('cxaiSetting.sub', false)
             setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
             break
     }
@@ -2757,10 +2780,8 @@ function doHomeWork(index, TiMuList) {
             });
             logger('自动答题成功，准备切换下一题', 'green');
             setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * textareaList.length);
-        }).catch((agrs) => {
-            if (agrs && agrs['c'] == 0) {
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
-            }
+        }).catch(() => {
+            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
         });
     }
 
@@ -2824,6 +2845,7 @@ function doHomeWork(index, TiMuList) {
             mergedAnswers = mergedAnswers.join("|");
             _question = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
             //判断题目是否已作答
+            var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if (($(_answerTmpArr[i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
                     //没有被选择
@@ -2833,7 +2855,7 @@ function doHomeWork(index, TiMuList) {
                         check_answer_flag = 1;
                         setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
                     } else {
-                        logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue')
+                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -2868,10 +2890,13 @@ function doHomeWork(index, TiMuList) {
                         }
                         timuele.html(timuele.html() + '<p style="color:green;">📖 ' + displayAns + '</p>')
                     }
-                    let _i = cxaiFindAnswerIndex(_a, agrs)
+                    let _i = cxaiMatchByLetter(agrs, _a.length);
+                    if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
+                    if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                    if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                     if (_i == -1) {
                         logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
                     } else {
                         setTimeout(() => {
                             let check = $(_answerTmpArr[_i]).parent().find('span').attr('class') || ''
@@ -2883,13 +2908,11 @@ function doHomeWork(index, TiMuList) {
                                 }
                             }
                             logger('自动答题成功，准备切换下一题', 'green')
-                            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         }, 300)
                     }
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
                 })
             }
         }
@@ -2936,9 +2959,17 @@ function doHomeWork(index, TiMuList) {
                         // logger("timuele题目标签:"+timuele.html())
                         timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                     }
-                    let _matchedIndices = cxaiFindMultipleIndices(_a, agrs)
+                    let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _a.length);
+                    if (_matchedIndices.length === 0) {
+                        $.each(_a, function(i, t) {
+                            if (agrs.indexOf(_a[i]) !== -1) _matchedIndices.push(i);
+                        });
+                    }
+                    if (_matchedIndices.length === 0) {
+                        _matchedIndices = cxaiFindMultipleIndices(_a, agrs);
+                    }
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
-                        for (var fi = 0; fi < _matchedIndices.length; fi++) {
+                        for (let fi = 0; fi < _matchedIndices.length; fi++) {
                             $(_answerTmpArr[_matchedIndices[fi]]).parent().find('span').css('font-weight', 'bold');
                         }
                     } else {
@@ -2949,10 +2980,8 @@ function doHomeWork(index, TiMuList) {
                     }
                     logger('自动答题成功，准备切换下一题', 'green')
                     setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + _answerTmpArr.length * 600 + _matchedIndices.length * 600)
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
                 })
             }
         }
@@ -2962,7 +2991,7 @@ function doHomeWork(index, TiMuList) {
             _textareaList = findAnswerTextareas($(TiMuList[index]));
             if (!_textareaList || _textareaList.length === 0) {
                 logger('未找到填空题输入区域，跳过此题', 'red');
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
+                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time));
                 break
             }
             // 判断题目是否已作答（用 try/catch 防止 UE.getEditor 抛错；id 为空则回退 name）
@@ -2986,10 +3015,8 @@ function doHomeWork(index, TiMuList) {
                     });
                     setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _textareaList.length);
                     logger('自动答题成功，准备切换下一题', 'green');
-                }).catch((agrs) => {
-                    if (agrs && agrs['c'] == 0) {
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
-                    }
+                }).catch(() => {
+                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
                 });
             }
             break
@@ -3000,6 +3027,7 @@ function doHomeWork(index, TiMuList) {
                 _a.push($(t).text().trim())
             })
             //判断题目是否已作答
+            var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if (($(_answerTmpArr[i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
                     //没有被选择
@@ -3009,7 +3037,7 @@ function doHomeWork(index, TiMuList) {
                         check_answer_flag = 1;
                         setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
                     } else {
-                        logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue')
+                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -3028,13 +3056,13 @@ function doHomeWork(index, TiMuList) {
                     let judgeResult = parseJudgeAnswer(agrs)
                     if (judgeResult === null) {
                         logger('答案匹配出错，准备切换下一题', 'red')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
                     let _i = findJudgeOptionIndex(_a, judgeResult === 'true')
                     if (_i === -1) {
                         logger('未匹配到正确选项，跳过', 'red')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
                         return
                     }
                     setTimeout(() => {
@@ -3047,12 +3075,10 @@ function doHomeWork(index, TiMuList) {
                             }
                         }
                         logger('自动答题成功，准备切换下一题', 'green')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
                     }, 300)
-                }).catch((agrs) => {
-                    if (agrs['c'] == 0) {
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
-                    }
+                }).catch(() => {
+                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
                 })
             }
             break
@@ -3061,7 +3087,7 @@ function doHomeWork(index, TiMuList) {
             let _answerEle = findAnswerTextareas($(TiMuList[index]))
             if (!_answerEle || _answerEle.length === 0) {
                 logger((index + 1) + ' 未找到文本作答区域，跳过此题', 'red')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
                 break
             }
             let _isAnswered4 = false
@@ -3089,7 +3115,7 @@ function doHomeWork(index, TiMuList) {
                 });
                 logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _answerEle.length);
-            }).catch(() => {
+            }).catch((err) => {
                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
             });
         }
@@ -3127,7 +3153,7 @@ function doHomeWork(index, TiMuList) {
                 });
                 logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _answerEle5.length);
-            }).catch(() => {
+            }).catch((err) => {
                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
             });
         }
@@ -3165,7 +3191,7 @@ function doHomeWork(index, TiMuList) {
                 });
                 logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _answerEle6.length);
-            }).catch(() => {
+            }).catch((err) => {
                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
             });
         }
@@ -3190,11 +3216,9 @@ function doHomeWork(index, TiMuList) {
                             getAnswer(_type || 4, jdt).then((agrs) => {
                                 setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
                                 logger('使用富文本编辑器ID回答成功，准备切换下一题', 'green');
+                                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time));
+                            }).catch(() => {
                                 setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
-                            }).catch((agrs) => {
-                                if (agrs['c'] == 0) {
-                                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
-                                }
                             });
                         } else {
                             logger('找到富文本编辑器但无法获取ID，改用普通方法', 'yellow');
@@ -3276,10 +3300,8 @@ function missonExam() {
             })
             logger('自动答题成功，准备切换下一题', 'green')
             toNextExam()
-        }).catch((agrs) => {
-            if (agrs['c'] == 0) {
-                toNextExam()
-            }
+        }).catch(() => {
+            toNextExam()
         })
     }
 
@@ -3351,7 +3373,10 @@ function missonExam() {
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
 
-                let _i = cxaiFindAnswerIndex(_a, agrs)
+                let _i = cxaiMatchByLetter(agrs, _a.length);
+                if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
+                if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i == -1) {
                     logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                     setTimeout(toNextExam, 5000)
@@ -3372,10 +3397,8 @@ function missonExam() {
                         }
                     }, 300)
                 }
-            }).catch((agrs) => {
-                if (agrs['c'] == 0) {
-                    toNextExam()
-                }
+            }).catch(() => {
+                toNextExam()
             })
         }
             break
@@ -3420,9 +3443,17 @@ function missonExam() {
                 }
 
                 {
-                    let _matchedIndices = cxaiFindMultipleIndices(_a, agrs)
+                    let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _a.length);
+                    if (_matchedIndices.length === 0) {
+                        $.each(_a, function(i, t) {
+                            if (agrs.indexOf(_a[i]) !== -1) _matchedIndices.push(i);
+                        });
+                    }
+                    if (_matchedIndices.length === 0) {
+                        _matchedIndices = cxaiFindMultipleIndices(_a, agrs);
+                    }
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
-                        for (var fi = 0; fi < _matchedIndices.length; fi++) {
+                        for (let fi = 0; fi < _matchedIndices.length; fi++) {
                             $(_answerTmpArr[_matchedIndices[fi]]).parent().find('span').css('font-weight', 'bold');
                         }
                     } else {
@@ -3434,10 +3465,8 @@ function missonExam() {
                     logger('自动答题成功，准备切换下一题', 'green')
                     toNextExam()
                 }
-            }).catch((agrs) => {
-                if (agrs['c'] == 0) {
-                    toNextExam()
-                }
+            }).catch(() => {
+                toNextExam()
             })
         }
             break
@@ -3475,8 +3504,8 @@ function missonExam() {
                 })
                 logger('自动答题成功，准备切换下一题', 'green')
                 toNextExam()
-            }).catch((agrs) => {
-                if (agrs && agrs['c'] == 0) { toNextExam() }
+            }).catch(() => {
+                toNextExam()
             })
             break
         }
@@ -3536,10 +3565,8 @@ function missonExam() {
                     logger('此题已作答，准备切换下一题', 'green')
                     toNextExam()
                 }
-            }).catch((agrs) => {
-                if (agrs['c'] == 0) {
-                    toNextExam()
-                }
+            }).catch(() => {
+                toNextExam()
             })
             break
         }
@@ -3658,10 +3685,8 @@ function missonExam() {
                             setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
                             logger('材料题自动答题成功，准备切换下一题', 'green');
                             toNextExam();
-                        }).catch((agrs) => {
-                            if (agrs['c'] == 0) {
-                                toNextExam();
-                            }
+                        }).catch(() => {
+                            toNextExam();
                         });
                     } else {
                         logger('找到材料题编辑器但无法获取ID，尝试其他方法', 'yellow');
@@ -3696,10 +3721,8 @@ function missonExam() {
                             setTimeout(() => { UE.getEditor(editorIdMatch).setContent(agrs) }, 300);
                             logger('使用脚本找到的编辑器ID回答成功，准备切换下一题', 'green');
                             toNextExam();
-                        }).catch((agrs) => {
-                            if (agrs['c'] == 0) {
-                                toNextExam();
-                            }
+                        }).catch(() => {
+                            toNextExam();
                         });
                     } else {
                         logger('无法找到有效的编辑器ID，跳过此题', 'red');
@@ -3857,7 +3880,10 @@ function doExamPreview(index, TiMuList) {
                     let timuele = $timu.find('.mark_name')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
-                let _i = cxaiFindAnswerIndex(_a, agrs)
+                let _i = cxaiMatchByLetter(agrs, _a.length);
+                if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
+                if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i === -1) {
                     logger(prefix + 'AI无法完美匹配正确答案，请手动选择', 'red')
                     return nextSoon()
@@ -3911,9 +3937,17 @@ function doExamPreview(index, TiMuList) {
                     let timuele = $timu.find('.mark_name')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
-                let _matchedIndices = cxaiFindMultipleIndices(_a, agrs)
+                let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _a.length);
+                if (_matchedIndices.length === 0) {
+                    $.each(_a, function(i, t) {
+                        if (agrs.indexOf(_a[i]) !== -1) _matchedIndices.push(i);
+                    });
+                }
+                if (_matchedIndices.length === 0) {
+                    _matchedIndices = cxaiFindMultipleIndices(_a, agrs);
+                }
                 if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
-                    for (var fi = 0; fi < _matchedIndices.length; fi++) {
+                    for (let fi = 0; fi < _matchedIndices.length; fi++) {
                         $(_answerTmpArr[_matchedIndices[fi]]).parent().find('span').css('font-weight', 'bold')
                     }
                 } else {
@@ -4159,29 +4193,6 @@ function buildPrompt(opts) {
     let q = opts.question != null ? String(opts.question) : ''
     let payloadObj = {}
     let type = opts.type || ''
-
-    // 根据题型添加明确的回答指令
-    let instruction = ''
-    if (type === '单选题') {
-        instruction = '从以下选项中选择一个正确答案，直接返回该选项的完整文本（不要加引号、序号或任何前缀）：'
-    } else if (type === '多选题') {
-        instruction = '从以下选项中选择所有正确答案，用"|"分隔每个选项的完整文本（不要加引号、序号或任何前缀）：'
-    } else if (type === '判断题') {
-        instruction = '判断以下说法是否正确，只返回"正确"或"错误"：'
-    } else if (type === '填空题') {
-        instruction = '填写答案，多个空用"|"分隔，只返回答案内容：'
-    } else if (type.includes('简答') || type.includes('材料') || type.includes('论述') || type.includes('名词解释')) {
-        instruction = '直接回答以下问题，不要添加多余的解释或前缀：'
-    } else if (type === '写作题') {
-        instruction = '根据要求写作，直接返回作文内容：'
-    } else if (type === '翻译题') {
-        instruction = '翻译以下内容，直接返回译文：'
-    }
-
-    if (opts.answer_format) {
-        payloadObj.answer_format = String(opts.answer_format)
-    }
-    payloadObj.instruction = instruction
     payloadObj.question = q
     if (Array.isArray(opts.options) && opts.options.length > 0) {
         payloadObj.options = opts.options.map(function (s) { return String(s == null ? '' : s).trim() })
@@ -4195,28 +4206,6 @@ function buildPrompt(opts) {
 }
 
 
-function cxaiQueryQuestionBank(questionText, options, type) {
-    return new Promise(function (resolve) {
-        var url = localStorage.getItem('cxaiSetting.questionBankUrl') || '';
-        if (!url) { console.log('[CXAI题库] 自定义题库URL未配置，跳过'); return resolve([]); }
-        console.log('[CXAI题库] 请求自定义题库:', url);
-        GM_xmlhttpRequest({
-            method: 'POST',
-            url: url + (url.indexOf('?') !== -1 ? '&' : '?') + 'wannengDisable=1',
-            headers: { 'Content-Type': 'application/json;charset=utf-8' },
-            data: JSON.stringify({ question: questionText, options: options, type: type }),
-            timeout: 15000,
-            onload: function (r) {
-                try {
-                    var res = JSON.parse(r.responseText);
-                    resolve(res.answer.allAnswer || []);
-                } catch (e) { resolve([]); }
-            },
-            onerror: function () { resolve([]); },
-            ontimeout: function () { resolve([]); }
-        });
-    });
-}
 
 
 function cxaiQueryThirdPartyApi(questionText, options, type) {
@@ -4369,9 +4358,19 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
     answerList = answerList.filter(function(a) {
         if (cxaiIsGarbageAnswer(a)) {
             console.log('[CXAI题库] 过滤垃圾答案: "' + String(a) + '"');
-            return false;
+            return true;
         }
-        return true;
+        // ★ 多选题答案不是合法的字母格式（应为 "A,B,C" 或 "ABC" 等）
+        var _aStr = String(a);
+        if (_currentQuestionMeta && (_currentQuestionMeta.typeName === '多选题' || _currentQuestionMeta.typeName === '多项选择题') && _aStr.length > 2) {
+            // 合法格式: 纯字母如 "AB"、"A,B,C"、"A、B、D"、数字索引如 "0|2|3"
+            var _isLegalMulti = /^[A-Ga-g\s,，、|;；]+$/.test(_aStr) || /^\d[\d\s|,;，、和]+$/.test(_aStr) || /^\d+$/.test(_aStr);
+            if (!_isLegalMulti) {
+                console.log('[CXAI] 多选题答案格式不合法，判为垃圾: "' + _aStr.slice(0, 40) + '"');
+                return true;
+            }
+        }
+        return false;
     });
     if (answerList.length === 0) { console.log('[CXAI题库] 过滤后答案列表为空'); return null; }
 
@@ -4440,6 +4439,10 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
 
 
 function getAnswer(_t, _q, retryCount = 0) {
+    // 搜题总开关：关闭时静默跳过
+    if (localStorage.getItem('cxaiSetting.searchEnabled') === 'false') {
+        return Promise.reject({ 'c': 0, _instant: true });
+    }
     // 兼容: _q 既可为字符串(旧调用),也可为 buildPrompt() 返回的 { payload, display } 对象
     let _payload, _display
     if (_q && typeof _q === 'object' && (_q.payload != null || _q.display != null)) {
@@ -4514,7 +4517,7 @@ function getAnswer(_t, _q, retryCount = 0) {
         var _useProvider = !!_cfg.apiKey;  // 有 API Key 走直连，否则走代理
 
         // 检查是否有任何答案来源（题库 或 AI Provider/代理）
-        var _hasQuestionBank = !!(localStorage.getItem('cxaiSetting.questionBankUrl') || localStorage.getItem('cxaiSetting.thirdPartyApi') === 'true');
+        var _hasQuestionBank = localStorage.getItem('cxaiSetting.thirdPartyApi') === 'true';
         var _hasAI = !!(_useProvider || (setting.apiHost || _host));
         if (!_hasQuestionBank && !_hasAI) {
             updateLogEntry($thinkingLog, '请先在设置中配置 API Key、代理地址 或 题库', 'red')
@@ -4540,7 +4543,7 @@ function getAnswer(_t, _q, retryCount = 0) {
                     var _overlapCount = 0;
                     var _checkFragments = function(src, target) {
                         var count = 0;
-                        for (var fi = 0; fi <= src.length - 8; fi++) {
+                        for (let fi = 0; fi <= src.length - 8; fi++) {
                             if (target.indexOf(src.substring(fi, fi + 8)) !== -1) count++;
                         }
                         return count;
@@ -4563,6 +4566,24 @@ function getAnswer(_t, _q, retryCount = 0) {
                 }
             }
 
+            // ★ 增强：从长解释文本中提取答案字母
+            if (!isFromBank && _ans.length > 3) {
+                var _directM = _ans.match(/答案[是为：:\s]*([A-Ga-g])\b/) ||
+                               _ans.match(/选[择了取]?[：:\s]*([A-Ga-g])\b/) ||
+                               _ans.match(/正确[答选][案项]?[是为：:\s]*([A-Ga-g])\b/);
+                if (_directM && _directM[1]) {
+                    console.log('[CXAI] 从解释中提取答案(字母): "' + _ans.slice(0, 40) + '..." \u2192 ' + _directM[1].toUpperCase());
+                    _ans = _directM[1].toUpperCase();
+                }
+                if (_ans.length > 3) {
+                    var _quotedM = _ans.match(/[\u201c\u201d"']([A-Ga-g])[\u201c\u201d"']/);
+                    if (_quotedM && _quotedM[1]) {
+                        console.log('[CXAI] 从解释中提取答案(引号字母): "' + _ans.slice(0, 40) + '..." \u2192 ' + _quotedM[1].toUpperCase());
+                        _ans = _quotedM[1].toUpperCase();
+                    }
+                }
+            }
+            
             // ★ 从解释性文本中提取答案（如 "正确选项是B，对应"IP"" → "IP"）
             if (!isFromBank && _ans.length > 10) {
                 var _m = null;
@@ -4788,60 +4809,84 @@ function getAnswer(_t, _q, retryCount = 0) {
             _qOptions = _parsed.options || [];
         } catch (e) { /* not JSON, use as-is */ }
 
-        // 阶段1：先查题库（两个题库并行查询，但与 AI 串行）
-        Promise.all([
-            cxaiQueryThirdPartyApi(_qText, _qOptions, _t),
-            cxaiQueryQuestionBank(_qText, _qOptions, _t)
-        ]).then(function (results) {
+        // 阶段1：先查题库
+
+        cxaiQueryThirdPartyApi(_qText, _qOptions, _t).then(function (tpAnswers) {
+
             if (requestCompleted) return;
-            var tpAnswers = results[0];
-            var cbAnswers = results[1];
-            console.log('[CXAI题库] 查询结果 - lyck6:', tpAnswers ? tpAnswers.length + '条' : 'null', '| 自定义题库:', cbAnswers ? cbAnswers.length + '条' : '空');
+
+            console.log('[CXAI题库] 查询结果 - lyck6:', tpAnswers ? tpAnswers.length + '条' : 'null');
+
             var allAnswers = [];
+
             if (tpAnswers && tpAnswers.length > 0) allAnswers.push.apply(allAnswers, tpAnswers);
-            if (cbAnswers && cbAnswers.length > 0) allAnswers.push.apply(allAnswers, cbAnswers);
+
             if (allAnswers.length === 0) {
-                // 阶段2：题库无答案，转向 AI
+
                 console.log('[CXAI题库] 所有题库均无答案，转向AI');
+
                 _doAILogic();
+
                 return;
+
             }
+
             console.log('[CXAI题库] 合并答案:', JSON.stringify(allAnswers).slice(0, 300));
+
             var processed = cxaiProcessBankAnswer(allAnswers, _qOptions, _t);
+
             console.log('[CXAI题库] 处理后结果:', processed);
+
             if (processed !== null && processed !== undefined) {
-                // 题库命中，直接返回
+
                 var displayAnswer = '';
+
                 if (_t === 0 && typeof processed === 'number' && _qOptions && processed < _qOptions.length) {
+
                     displayAnswer = _qOptions[processed];
+
                 } else if (_t === 1 && Array.isArray(processed) && _qOptions) {
+
                     displayAnswer = processed.map(function(idx) {
+
                         return (idx < _qOptions.length) ? _qOptions[idx] : idx;
+
                     }).join(' | ');
+
                 } else {
+
                     displayAnswer = String(processed);
+
                 }
+
                 logger('题库命中: ' + _qText.slice(0, 30), 'green');
+
                 _handleResponse(String(processed), true);
+
             } else {
-                // 阶段2：题库答案处理失败，转向 AI
+
                 console.log('[CXAI题库] 答案处理后为空，转向AI');
+
                 _doAILogic();
+
             }
+
         }).catch(function (e) {
+
             console.warn('[CXAI题库] 查询异常:', e);
-            // 阶段2：题库异常，转向 AI
+
             if (!requestCompleted) _doAILogic();
+
         });
+
 
         }, _waitMs);
     })
 }
 
 
-// ========== 题库查询（对齐参考脚本 参考3404小站.js）==========
+// ========== 题库查询==========
 
-// 自定义题库查询（POST {question,options,type} → {answer:{allAnswer:[...]}}）
 // type 为数字：0=单选, 1=多选, 2=填空, 3=判断, 4=主观...
 // ── 题库查询 ──
 
@@ -4906,7 +4951,9 @@ function startDoWork(index, doms, c, TiMuList) {
     let questionFull = $(TiMuList[c]).find('.Zy_TItle.clearfix > div').html() || ''
     questionFull = tidyQuestion(questionFull).replace("/<span.*?>.*?</span>/", "");
     let _question = tidyQuestion(questionFull)
-    let typeName = (questionFull.match(/^【(.*?)】/) || [])[1] || '未知';
+    let _questionImages = cxaiExtractImages(questionFull)
+    if (_questionImages.length > 0) { logger('检测到题目包含 ' + _questionImages.length + ' 张图片', 'blue') }
+    let typeName = (questionFull.match(/^【(.*?)】/) || [])[1] || (questionFull.match(/(单选题|多选题|填空题|判断题|简答题|论述题)/) || [])[1] || '未知';
     let _TimuType = {
         单选题: 0, 单项选择题: 0, 单选: 0,
         多选题: 1, 多项选择题: 1, 多选: 1,
@@ -4997,10 +5044,12 @@ function startDoWork(index, doms, c, TiMuList) {
                     }
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + displayAns + '</p>')
                 }
-                let _i = cxaiFindAnswerIndex(_a, agrs)
+                let _i = cxaiMatchByLetter(agrs, _a.length);
+                if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
+                if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i == -1) {
                     logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
-                    localStorage.setItem('cxaiSetting.sub', false)
                 } else {
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
                         $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
@@ -5046,12 +5095,20 @@ function startDoWork(index, doms, c, TiMuList) {
                 $.each(_answerTmpArr, (i, t) => {
                     _multiOptions.push(tidyStr($(t).html()))
                 })
-                let _matchedIndices = cxaiFindMultipleIndices(_multiOptions, agrs)
-                for (var fi = 0; fi < _matchedIndices.length; fi++) {
+                let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _multiOptions.length);
+                if (_matchedIndices.length === 0) {
+                    $.each(_multiOptions, function(i, t) {
+                        if (agrs.indexOf(_multiOptions[i]) !== -1) _matchedIndices.push(i);
+                    });
+                }
+                if (_matchedIndices.length === 0) {
+                    _matchedIndices = cxaiFindMultipleIndices(_multiOptions, agrs);
+                }
+                for (let fi = 0; fi < _matchedIndices.length; fi++) {
                     _a.push(['A', 'B', 'C', 'D', 'E', 'F', 'G'][_matchedIndices[fi]])
                 }
                 if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
-                    for (var fi = 0; fi < _matchedIndices.length; fi++) {
+                    for (let fi = 0; fi < _matchedIndices.length; fi++) {
                         $(_answerTmpArr[_matchedIndices[fi]]).parent().find('span').css('font-weight', 'bold');
                     }
                 } else {
@@ -5064,7 +5121,6 @@ function startDoWork(index, doms, c, TiMuList) {
                 if (_a.length <= 0) {
                     logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
                     // setting.sub = 0
-                    localStorage.setItem('cxaiSetting.sub', false)
                 } else {
                     $(TiMuList[c]).find('.Zy_ulTop').parent().find('#answer' + id).val(_a.join(""))
                 }
@@ -5114,14 +5170,12 @@ function startDoWork(index, doms, c, TiMuList) {
                 let judgeResult = parseJudgeAnswer(agrs)
                 if (judgeResult === null) {
                     logger("答案匹配出错，跳过", "red");
-                    localStorage.setItem('cxaiSetting.sub', false)
                     setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
                     return
                 }
                 let _i = findJudgeOptionIndex(_a, judgeResult === 'true');
                 if (_i == -1) {
                     logger("未匹配到正确答案，跳过", "red");
-                    localStorage.setItem('cxaiSetting.sub', false)
                 } else {
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
                         $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
@@ -5144,7 +5198,6 @@ function startDoWork(index, doms, c, TiMuList) {
             getAnswer(_TimuType, _question).then((agrs) => {
                 if (agrs == '暂无答案') {
                     // setting.sub = 0
-                    localStorage.setItem('cxaiSetting.sub', false)
                 }
                 let _answerList = agrs.split("|")
                 $.each(_textareaLista, (i, t) => {
@@ -5234,9 +5287,6 @@ function waitForJQueryElement(selector) {
         }, 500);
     });
 }
-
-
-// ── 字体解密 ──
 
 
 // ── 粘贴限制绕过 ──
