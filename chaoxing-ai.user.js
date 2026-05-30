@@ -1,14 +1,14 @@
-﻿// ==UserScript==
+// ==UserScript==
 // @name         学习通AI助手
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.2.0
+// @version      1.2.1
 // @description  学习通全自动学习助手 | 10大AI模型 + 第三方题库 + 视频自动播放 + 字体解密 + 章节导航 + 粘贴解锁 + 自动提交
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
 // @supportURL   https://github.com/Z-Fovik-RT/chaoxing-ai/issues
 // @icon         https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/icon.png
 // @tag          学习通
-// @tag          chaoxing
+// @tag          自定义API
 // @tag          AI答题
 // @tag          自动刷课
 // @tag          超星
@@ -25,8 +25,9 @@
 // @grant        GM_getValue
 // @grant        GM_info
 // @grant        GM_getResourceText
-// @compatible    chrome Tampermonkey
-// @compatible    firefox Greasemonkey 4+ / Tampermonkey
+// @grant        GM_setClipboard
+// @compatible    chrome ScriptCat / Tampermonkey
+// @compatible    firefox ScriptCat / Tampermonkey
 // @require      https://scriptcat.org/lib/668/1.0/TyprMd5.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/sweetalert2/11.1.0/sweetalert2.all.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js
@@ -35,6 +36,10 @@
 // @downloadURL  https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js
 // @license      MIT
 // ==/UserScript==
+
+(function() {
+'use strict';
+
 
 /*
 ╔═══════════════════════════════════════════════════════════════════════╗
@@ -118,8 +123,8 @@ var PROVIDERS = {
 };
 
 // ── 脚本运行参数 ──
-var setting = {
-    showBox: 1,     // 显示脚本浮窗，0为关闭，1为开启，不建议关闭
+var cxaiCfg = {
+    cxai_showBox: 1,     // 显示脚本浮窗，0为关闭，1为开启，不建议关闭
     apiHost: '',    // API代理地址，例如 https://your-domain.com
 
     task: 0,        // 只处理任务点任务，0为关闭，1为开启
@@ -141,7 +146,7 @@ var setting = {
     examTurn: 0,     // 考试自动跳转下一题，0为关闭，1为开启
     examTurnTime: 0, // 考试自动跳转下一题随机间隔时间(3-7s)之间，0为关闭，1为开启
     goodStudent: 1,  // 好学生模式,不自动选择答案,仅将单选题和多选题的ABCD加粗
-    alterTitle: 1,  //修改题目,将AI回复的答案插入题目中,不建议关闭,AI回复不能完全匹配答案,题目显示答案供手动选择
+    alterTitle: 1,  //修改题目,将AI回复的答案插入题目中
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -156,9 +161,9 @@ function cxaiGetDisplayAnswer(answer, optionsArr) {
     if (!answer) return answer;
 
     // 防止AI回显题目文本：如果答案与当前题目相同或以题目开头，说明AI在复述题目而非作答
-    if (_currentQuestionMeta && _currentQuestionMeta.questionText) {
+    if (cxai_currentQuestionMeta && cxai_currentQuestionMeta.questionText) {
         var _ans = String(answer).trim();
-        var _q = _currentQuestionMeta.questionText.trim();
+        var _q = cxai_currentQuestionMeta.questionText.trim();
         if (_q.length > 5 && (_ans === _q || _ans.indexOf(_q) === 0)) {
             return '[⚠️ AI回显了题目，已跳过]';
         }
@@ -224,7 +229,6 @@ function cxaiBuildRequest(format, userMsg, opts) {
     }
     return '';
 }
-
 
 function cxaiParseResponse(format, raw) {
     if (raw.error) {
@@ -329,33 +333,29 @@ var CXAI_SYSTEM_PROMPT = `你是一个答题助手，只输出答案，不要任
 判断题：只回复 A（表示正确）或 B（表示错误）
 简答题：直接返回答案内容
 
-重要：不要输出题号、不要输出解析、不要输出多余文字。只输出答案字母或答案文本。`;
+重要：不要输出题号、不要输出解析、不要输出多余文字。只输出答案字母或答案文本。
+禁止输出"一个正确的描述"、"直接解决"等描述性文本，必须输出具体的选项字母。`;
 
-
-// 读取当前 Provider 配置
-
-// 自适应AI参数
-// questionType 为数字：0=单选, 1=多选, 2=填空, 3=判断, 4=简答/主观, 5=写作, 6=翻译, 98=翻译, 99=写作
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 3. 全局变量 & 早期初始化
 //  快捷引用、全局状态、颜色映射、页面路由分发
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var _w = unsafeWindow,
+var cxai_w = unsafeWindow,
     _l = location,
-    _d = _w.document,
-    $ = _w.jQuery || top.jQuery,
+    _d = cxai_w.document,
+    $ = cxai_w.jQuery || top.jQuery,
     md5 = md5 || window.md5,
-    UE = _w.UE,
+    UE = cxai_w.UE,
     Swal = Swal || window.Swal;
 
-// API代理地址（从 setting.apiHost 读取，用户在设置面板中配置）
-var _host = '';
+// API代理地址（从 cxaiCfg.apiHost 读取，用户在设置面板中配置）
+var cxai_host = '';
 
-var _mlist, _defaults, _domList, $subBtn, $saveBtn, $frame_c, $okBtn;
-var _currentQuestionMeta = null;
-// AI 搜题请求节流：记录下一次可发起请求的时间戳（ms），由 getAnswer 内部维护
+var cxai_mlist, _defaults, _domList, $subBtn, $saveBtn, $frame_c, $okBtn;
+var cxai_currentQuestionMeta = null;
+// AI 搜题请求节流：记录下一次可发起请求的时间戳（ms），由 cxai_getAnswer 内部维护
 var _cxaiNextAiAllowedAt = 0;
 
 // 颜色映射表（提前定义，避免变量提升问题）
@@ -367,59 +367,68 @@ var _cxaiLogColorMap = {
 
 try { $('.navshow').find('a:contains(体验新版)')[0] ? $('.navshow').find('a:contains(体验新版)')[0].click() : ''; } catch (e) { /* ignore */ }
 
-try { setting.decrypt ? decryptFont() : ''; } catch (e) { console.warn('[ChaoxingAI] decryptFont error:', e); }
+try { cxaiCfg.decrypt ? cxai_decryptFont() : ''; } catch (e) { console.warn('[ChaoxingAI] cxai_decryptFont error:', e); }
 
 try { cxaiInitPasteBypass(); } catch (e) { console.warn('[ChaoxingAI] pasteBypass error:', e); }
+
+// 兼容检测：如果同时运行了“ChatGPT学习通作业考试助手”(NE-21)，自动禁用其答题功能避免冲突
+try {
+    if (unsafeWindow && unsafeWindow.setting && unsafeWindow.setting.work !== undefined) {
+        unsafeWindow.setting.work = 0;
+        unsafeWindow.setting.examTurn = 0;
+        console.log('[ChaoxingAI] 检测到NE-21脚本已运行，已自动禁用其答题功能');
+    }
+} catch (e) { /* 无法访问其 cxaiCfg 对象，跳过 */ }
 
 
 if (_l.hostname == 'i.mooc.chaoxing.com' || _l.hostname == "i.chaoxing.com") {
     // 
 } else if (_l.pathname.includes('/mycourse/studentstudy')) {
-    showBox()
+    cxai_showBox()
     $('#cxai-log', window.parent.document).html('初始化完毕！')
-    setupAntiSleep()
-    setupAutoRefresh()
+    cxai_setupAntiSleep()
+    cxai_setupAutoRefresh()
 } else if (_l.pathname.includes('/knowledge/cards')) {
-    setupAntiSleep()
-    var params = getTaskParams()
+    cxai_setupAntiSleep()
+    var params = cxai_getTaskParams()
     var parsedParams = null;
     if (params && params !== '$mArg') {
         try { parsedParams = $.parseJSON(params); } catch (e) { parsedParams = null; }
     }
     if (!parsedParams || !parsedParams['attachments'] || parsedParams['attachments'].length <= 0) {
-        logger('无任务点可处理，即将跳转页面', 'red')
-        toNext()
+        cxai_logger('无任务点可处理，即将跳转页面', 'red')
+        cxai_toNext()
     } else {
-        waitForJQueryElement('.wrap .ans-cc .ans-attach-ct').then(function () {
+        cxai_waitForJQueryElement('.wrap .ans-cc .ans-attach-ct').then(function () {
             top.checkJob ? top.checkJob = () => false : true
             _domList = []
-            _mlist = parsedParams['attachments']
+            cxai_mlist = parsedParams['attachments']
             _defaults = parsedParams['defaults']
             $.each($('.wrap .ans-cc .ans-attach-ct'), (i, t) => {
                 _domList.push($(t).find('iframe'))
             })
-            missonStart()
+            cxai_missonStart()
         });
     }
 } else if (_l.pathname.includes('/exam/test/reVersionTestStartNew')) {
-    showBox()
-    waitForJQueryElement('.mark_table .whiteDiv').then(function () { missonExam() });
+    cxai_showBox()
+    cxai_waitForJQueryElement('.mark_table .whiteDiv').then(function () { cxai_missonExam() });
 } else if (_l.pathname.includes('/mooc2/exam/preview')) {
-    showBox()
-    waitForJQueryElement('.mark_table .questionLi').then(function () { missonExamPreview() });
+    cxai_showBox()
+    cxai_waitForJQueryElement('.mark_table .questionLi').then(function () { cxai_missonExamPreview() });
 } else if (_l.pathname.includes('/mooc2/work/dowork')) {
-    showBox()
-    waitForJQueryElement('.mark_table form').then(function () { missonHomeWork() });
+    cxai_showBox()
+    cxai_waitForJQueryElement('.mark_table form').then(function () { cxai_missonHomeWork() });
 } else if (_l.pathname.includes('/work/phone/doHomeWork')) {
-    var _oldal = _w.alert
-    _w.alert = function (msg) {
+    var _oldal = cxai_w.alert
+    cxai_w.alert = function (msg) {
         if (msg == '保存成功') {
             return;
         }
         return _oldal(msg)
     }
-    var _oldcf = _w.confirm
-    _w.confirm = function (msg) {
+    var _oldcf = cxai_w.confirm
+    cxai_w.confirm = function (msg) {
         if (msg.includes('确认提交') || msg.includes('未做完')) {
             return true
         }
@@ -428,15 +437,11 @@ if (_l.hostname == 'i.mooc.chaoxing.com' || _l.hostname == "i.chaoxing.com") {
 } else if (_l.pathname.includes('/mooc2/exam/exam-list')) {
     // Swal.fire('学习通AI助手提示', '注意：请谨慎使用脚本考试，开始考试之前请确保该账号已激活脚本。', 'info')
 } else if (_l.pathname == '/mycourse/stu') {
-    checkBrowser()
+    cxai_checkBrowser()
 } else {
     // console.log(_l.pathname)
 }
 
-
-// 判断是否开启重做模式（不跳过已答题）
-
-// 判断是否开启相似度匹配
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 4. 答案匹配引擎
@@ -584,11 +589,11 @@ function cxaiFindAnswerIndex(optionsArr, answerStr) {
     var _letterIdx = cxaiExtractLetterIndices(answerStr, optionsArr.length);
     var _cleanedAnswer = answerStr.replace(/[\|｜\n;；,，、\s]/g, '');
     if (_letterIdx && _letterIdx.length > 0 && /^[A-Za-z]+$/.test(_cleanedAnswer)) {
-        logger('字母索引匹配: ' + answerStr + ' → 选项[' + _letterIdx[0] + ']', 'blue');
+        cxai_logger('字母索引匹配: ' + answerStr + ' → 选项[' + _letterIdx[0] + ']', 'blue');
         return _letterIdx[0];
     }
     // 模糊匹配
-    return findBestFuzzyMatch(optionsArr, answerStr);
+    return cxai_findBestFuzzyMatch(optionsArr, answerStr);
 }
 
 
@@ -622,7 +627,7 @@ function cxaiFindMultipleIndices(optionsArr, answerStr) {
     var _parts = answerStr.split(/[\|｜\n;；,，、]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
     if (_parts.length >= 2) {
         var matched = [];
-        var _fuzzyEnabled = typeof isFuzzyMatchEnabled === 'function' && isFuzzyMatchEnabled();
+        var _fuzzyEnabled = typeof cxai_isFuzzyMatchEnabled === 'function' && cxai_isFuzzyMatchEnabled();
         for (var p = 0; p < _parts.length; p++) {
             var part = _parts[p];
             var partStripped = _stripPunc(part);
@@ -672,7 +677,7 @@ function cxaiFindMultipleIndices(optionsArr, answerStr) {
                 var bestIdx = -1, bestScore = 0;
                 for (var j = 0; j < optionsArr.length; j++) {
                     if (matched.indexOf(j) !== -1) continue;
-                    var score = stringSimilarity(optionsArr[j], part);
+                    var score = cxai_stringSimilarity(optionsArr[j], part);
                     if (score > bestScore) { bestScore = score; bestIdx = j; }
                 }
                 if (bestIdx !== -1 && bestScore >= 0.5) {
@@ -714,11 +719,11 @@ function cxaiFindMultipleIndices(optionsArr, answerStr) {
         return _letterIdx;
     }
     // 模糊匹配
-    return findFuzzyMatchMultiple(optionsArr, answerStr);
+    return cxai_findFuzzyMatchMultiple(optionsArr, answerStr);
 }
 
 
-function stringSimilarity(s1, s2) {
+function cxai_stringSimilarity(s1, s2) {
     if (!s1 && !s2) return 1;
     if (!s1 || !s2) return 0;
     // 统一小写、去除首尾空白
@@ -746,29 +751,29 @@ function stringSimilarity(s1, s2) {
 }
 
 
-function findBestFuzzyMatch(optionTexts, aiAnswer, threshold, silent) {
-    if (!isFuzzyMatchEnabled()) return -1;
+function cxai_findBestFuzzyMatch(optionTexts, aiAnswer, threshold, silent) {
+    if (!cxai_isFuzzyMatchEnabled()) return -1;
     if (!aiAnswer || !optionTexts || optionTexts.length === 0) return -1;
     threshold = (threshold !== undefined) ? threshold : 0.5;
     var bestIndex = -1, bestScore = 0;
     for (var i = 0; i < optionTexts.length; i++) {
-        var score = stringSimilarity(optionTexts[i], aiAnswer);
+        var score = cxai_stringSimilarity(optionTexts[i], aiAnswer);
         if (score > bestScore) {
             bestScore = score;
             bestIndex = i;
         }
     }
     if (bestScore >= threshold) {
-        if (!silent) logger('相似度匹配: 最佳匹配项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
+        if (!silent) cxai_logger('相似度匹配: 最佳匹配项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
         return bestIndex;
     }
-    if (!silent) logger('相似度匹配: 所有选项相似度均低于阈值(' + (threshold * 100) + '%)，最高=' + (bestScore * 100).toFixed(1) + '%', 'orange');
+    if (!silent) cxai_logger('相似度匹配: 所有选项相似度均低于阈值(' + (threshold * 100) + '%)，最高=' + (bestScore * 100).toFixed(1) + '%', 'orange');
     return -1;
 }
 
 
-function findFuzzyMatchMultiple(optionTexts, aiAnswer, threshold) {
-    if (!isFuzzyMatchEnabled()) return [];
+function cxai_findFuzzyMatchMultiple(optionTexts, aiAnswer, threshold) {
+    if (!cxai_isFuzzyMatchEnabled()) return [];
     if (!aiAnswer || !optionTexts || optionTexts.length === 0) return [];
     threshold = (threshold !== undefined) ? threshold : 0.5;
     var parts = aiAnswer.split(/[\|｜\n;；,，、]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
@@ -778,7 +783,7 @@ function findFuzzyMatchMultiple(optionTexts, aiAnswer, threshold) {
         if (!part) continue;
         var bestIndex = -1, bestScore = 0;
         for (var i = 0; i < optionTexts.length; i++) {
-            var score = stringSimilarity(optionTexts[i], part);
+            var score = cxai_stringSimilarity(optionTexts[i], part);
             if (score > bestScore) {
                 bestScore = score;
                 bestIndex = i;
@@ -786,23 +791,23 @@ function findFuzzyMatchMultiple(optionTexts, aiAnswer, threshold) {
         }
         if (bestScore >= threshold && matched.indexOf(bestIndex) === -1) {
             matched.push(bestIndex);
-            logger('相似度匹配(多选): "' + part + '" → 选项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
+            cxai_logger('相似度匹配(多选): "' + part + '" → 选项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
         }
     }
     return matched;
 }
 
 
-function getRate() {
+function cxai_getRate() {
     var stored = localStorage.getItem('cxaiSetting.rate');
-    var n = stored !== null ? parseFloat(stored) : (setting.rate || 1);
+    var n = stored !== null ? parseFloat(stored) : (cxaiCfg.rate || 1);
     if (!isFinite(n) || n <= 0) n = 1;
     if (n > 16) n = 16;
     return n;
 }
 
 
-function parseJudgeAnswer(agrs) {
+function cxai_parseJudgeAnswer(agrs) {
     if (!agrs) return null;
     var s = agrs.replace(/[。，.,!！\s]/g, '').toLowerCase();
     var trueWords = ['正确', '是', '对', '√', 't', 'true', 'ri', 'right', 'yes', 'a'];
@@ -825,7 +830,7 @@ function parseJudgeAnswer(agrs) {
 }
 
 
-function findJudgeOptionIndex(optionTexts, isTrue) {
+function cxai_findJudgeOptionIndex(optionTexts, isTrue) {
     var trueWords = ['正确', '是', '对', '√', 'T', 'ri'];
     var falseWords = ['错误', '否', '错', '×', 'F', 'wr'];
     var words = isTrue ? trueWords : falseWords;
@@ -839,7 +844,7 @@ function findJudgeOptionIndex(optionTexts, isTrue) {
 }
 
 
-function findAnswerTextareas($container) {
+function cxai_findAnswerTextareas($container) {
     if (!$container || $container.length === 0) return $();
     // 1) 标准 UEditor 下层 textarea，name="answerEditor{questionId}{i}"
     var $eles = $container.find('textarea[name^="answerEditor"]');
@@ -852,62 +857,34 @@ function findAnswerTextareas($container) {
 }
 
 
-function updateLocalStorage(event) {
+function cxai_updateLocalStorage(event) {
     var checkbox = event.target;
     localStorage.setItem(checkbox.id, checkbox.checked);
 }
 
 
-function isRedoMode() {
+function cxai_isRedoMode() {
     var stored = localStorage.getItem('cxaiSetting.redo');
     if (stored !== null) return stored === 'true';
-    return !!setting.redo;
+    return !!cxaiCfg.redo;
 }
 
 
-function isFuzzyMatchEnabled() {
+function cxai_isFuzzyMatchEnabled() {
     var stored = localStorage.getItem('cxaiSetting.fuzzyMatch');
     if (stored !== null) return stored === 'true';
-    return !!setting.fuzzyMatch;
+    return !!cxaiCfg.fuzzyMatch;
 }
 
-
-// 从答案字符串中提取字母索引（如 "B" → 1, "A|C" → [0,2]），无字母时返回 null
-
-// ── 单选答案匹配 ──
-// 统一单选答案匹配：精确匹配 → 字母索引 → 模糊匹配，返回索引或 -1
-
-// ── 多选答案匹配 ──
-// 统一多选答案匹配：返回匹配到的选项索引数组
-
-// ── 相似度 & 模糊匹配 ──
-// 计算两个字符串的相似度（基于Levenshtein距离），返回 0~1 之间的值，1表示完全相同
-
-// 在选项数组中查找与AI回答最相似的选项，返回索引；相似度低于阈值时返回-1
-// threshold 默认 0.5（50%相似度）
-
-// 多选题模糊匹配：AI返回的答案用'|'分割后，对每个答案片段在选项中找最佳匹配
-// 返回匹配到的选项索引数组
-
-// 读取播放倍速：优先 localStorage（UI 设置），否则回退 setting.rate；范围 (0, 16]
-
-// ── 判断题解析 ──
-// 统一判断题答案解析：将AI回答归一为 'true' / 'false' / null
-// 解决旧版 string.indexOf 子串匹配导致 "正确的"、"True"、"对的" 等变体匹配失败的问题
-
-// 在选项列表中查找"正确/对"或"错误/错"对应的索引
-
-// 查找文本作答类题目（简答/写作/翻译/名词解释/论述题/计算题/材料题等）的 textarea。
-// 按特异性优先级尝试多个选择器，最后兜底为任意 textarea。
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 5. UI 浮窗 & 日志
-//  showBox 浮窗渲染/拖拽/设置面板，logger 日志输出
+//  cxai_showBox 浮窗渲染/拖拽/设置面板，cxai_logger 日志输出
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function showBox() {
+function cxai_showBox() {
     //公告
-    if (setting.showBox && top.document.querySelector('#cxai-notice') == undefined) {
+    if (cxaiCfg.cxai_showBox && top.document.querySelector('#cxai-notice') == undefined) {
         // 注入样式（仅一次）
         if (!top.document.getElementById('cxai-style')) {
             var styleEl = top.document.createElement('style');
@@ -948,31 +925,31 @@ function showBox() {
             #cxai-box .cxai-select:hover{border-color:rgba(255,255,255,.135);background:rgba(255,255,255,.065)}
             #cxai-box .cxai-select:focus{border-color:rgba(165,180,252,.26);box-shadow:0 0 0 2.5px rgba(165,180,252,.08)}
             /* ── User Info Card ── */
-            #cxai-box #userInfo{margin:11px 0 0;padding:10px 13px;background:rgba(255,255,255,.032);border:1px solid rgba(255,255,255,.07);border-radius:11px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04);font-size:12px;color:rgba(170,178,200,.68);line-height:1.6;overflow:hidden;transition:border-color .2s}
-            #cxai-box #userInfo:empty{display:none}
-            #cxai-box #userInfo b{background:linear-gradient(135deg,#a5b4fc,#5eead4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:600}
+            #cxai-box #cxai-userInfo{margin:11px 0 0;padding:10px 13px;background:rgba(255,255,255,.032);border:1px solid rgba(255,255,255,.07);border-radius:11px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04);font-size:12px;color:rgba(170,178,200,.68);line-height:1.6;overflow:hidden;transition:border-color .2s}
+            #cxai-box #cxai-userInfo:empty{display:none}
+            #cxai-box #cxai-userInfo b{background:linear-gradient(135deg,#a5b4fc,#5eead4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:600}
             /* ── Settings Panel ── */
-            #cxai-box #moreSettings{padding:6px 10px 10px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 1px 4px rgba(0,0,0,.10);margin:11px 0 0}
-            #cxai-box #moreSettings label{display:flex;flex-direction:row-reverse;align-items:center;justify-content:space-between;margin:0;padding:8px 6px;font-size:12px;color:rgba(175,181,202,.72);cursor:pointer;user-select:none;line-height:1.4;-webkit-font-smoothing:antialiased;transition:all .18s ease;border-radius:8px}
-            #cxai-box #moreSettings label:hover{color:rgba(210,216,234,.90);background:rgba(255,255,255,.04)}
-            #cxai-box #moreSettings label.cxai-field{flex-direction:column;align-items:stretch;gap:4px;cursor:default;padding:9px 6px;color:rgba(155,162,184,.60);font-size:11.8px}
-            #cxai-box #moreSettings label + label:not(.cxai-field):not(:has(+ .cxai-pair)){border-top:1px solid rgba(255,255,255,.045)}
-            #cxai-box #moreSettings input[type=checkbox]{appearance:none;-webkit-appearance:none;width:32px;height:18px;border:1px solid rgba(255,255,255,.08);border-radius:18px;cursor:pointer;position:relative;transition:all .25s ease;background:rgba(80,86,106,.30);box-shadow:inset 0 1px 2px rgba(0,0,0,.15);margin:0 0 0 10px;flex-shrink:0}
-            #cxai-box #moreSettings input[type=checkbox]::before{content:'';position:absolute;top:1.5px;left:1.5px;width:13px;height:13px;border-radius:50%;background:linear-gradient(180deg,rgba(210,214,228,.95),rgba(170,176,196));box-shadow:0 1px 2px rgba(0,0,0,.18);transition:all .25s ease}
-            #cxai-box #moreSettings input[type=checkbox]:hover{background:rgba(100,108,132,.36)}
-            #cxai-box #moreSettings input[type=checkbox]:checked{background:linear-gradient(135deg,rgba(140,155,220,.45),rgba(94,234,212,.25));border-color:rgba(165,180,252,.25);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 0 8px rgba(165,180,252,.15)}
-            #cxai-box #moreSettings input[type=checkbox]:checked:hover{background:linear-gradient(135deg,rgba(150,165,230,.50),rgba(94,234,212,.30));box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 0 12px rgba(165,180,252,.20)}
-            #cxai-box #moreSettings input[type=checkbox]:checked::before{transform:translateX(14px);background:linear-gradient(180deg,#e0e2ec,#c8cce0);box-shadow:0 1px 2px rgba(0,0,0,.15)}
-            #cxai-box #moreSettings .cxai-pair{display:grid;grid-template-columns:1fr 1fr;gap:0 7px;padding:0}
-            #cxai-box #moreSettings .cxai-pair label{margin:0;padding:8px 6px;border-top:none!important}
-            #cxai-box #moreSettings .cxai-pair + *{border-top:1px solid rgba(255,255,255,.045)}
-            #cxai-box #moreSettings p{display:none}
-            #cxai-box #moreSettings span[style*="color:#888"]{color:rgba(120,130,150,.50)!important}
-            #cxai-box #moreSettings input[type=text],#cxai-box #moreSettings input[type=password],#cxai-box #moreSettings input[type=number]{padding:6px 9px;font-size:11.5px;border-radius:9px;border:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.20);color:rgba(220,224,236,.86);outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,.12);transition:all .18s ease;-webkit-font-smoothing:antialiased}
-            #cxai-box #moreSettings input[type=text]::-webkit-input-placeholder,#cxai-box #moreSettings input[type=password]::-webkit-input-placeholder,#cxai-box #moreSettings input[type=number]::-webkit-input-placeholder{color:rgba(120,130,150,.45)}
-            #cxai-box #moreSettings input[type=text]:hover,#cxai-box #moreSettings input[type=password]:hover,#cxai-box #moreSettings input[type=number]:hover{border-color:rgba(255,255,255,.135);background:rgba(0,0,0,.26)}
-            #cxai-box #moreSettings input[type=text]:focus,#cxai-box #moreSettings input[type=password]:focus,#cxai-box #moreSettings input[type=number]:focus{border-color:rgba(165,180,252,.26);box-shadow:0 0 0 2.5px rgba(165,180,252,.08),inset 0 1px 3px rgba(0,0,0,.12)}
-            #cxai-box #moreSettings select,#cxai-box .cxai-select,#cxai-box #cxai-provider,#cxai-box #cxai-model{-moz-appearance:none;-webkit-appearance:none;appearance:none;color-scheme:dark;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath fill='rgba(160,170,200,.5)' d='M0 2.5h10L5 7.5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-size:10px;padding-right:22px}
+            #cxai-box #cxai-moreSettings{padding:6px 10px 10px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 1px 4px rgba(0,0,0,.10);margin:11px 0 0}
+            #cxai-box #cxai-moreSettings label{display:flex;flex-direction:row-reverse;align-items:center;justify-content:space-between;margin:0;padding:8px 6px;font-size:12px;color:rgba(175,181,202,.72);cursor:pointer;user-select:none;line-height:1.4;-webkit-font-smoothing:antialiased;transition:all .18s ease;border-radius:8px}
+            #cxai-box #cxai-moreSettings label:hover{color:rgba(210,216,234,.90);background:rgba(255,255,255,.04)}
+            #cxai-box #cxai-moreSettings label.cxai-field{flex-direction:column;align-items:stretch;gap:4px;cursor:default;padding:9px 6px;color:rgba(155,162,184,.60);font-size:11.8px}
+            #cxai-box #cxai-moreSettings label + label:not(.cxai-field):not(:has(+ .cxai-pair)){border-top:1px solid rgba(255,255,255,.045)}
+            #cxai-box #cxai-moreSettings input[type=checkbox]{appearance:none;-webkit-appearance:none;width:32px;height:18px;border:1px solid rgba(255,255,255,.08);border-radius:18px;cursor:pointer;position:relative;transition:all .25s ease;background:rgba(80,86,106,.30);box-shadow:inset 0 1px 2px rgba(0,0,0,.15);margin:0 0 0 10px;flex-shrink:0}
+            #cxai-box #cxai-moreSettings input[type=checkbox]::before{content:'';position:absolute;top:1.5px;left:1.5px;width:13px;height:13px;border-radius:50%;background:linear-gradient(180deg,rgba(210,214,228,.95),rgba(170,176,196));box-shadow:0 1px 2px rgba(0,0,0,.18);transition:all .25s ease}
+            #cxai-box #cxai-moreSettings input[type=checkbox]:hover{background:rgba(100,108,132,.36)}
+            #cxai-box #cxai-moreSettings input[type=checkbox]:checked{background:linear-gradient(135deg,rgba(140,155,220,.45),rgba(94,234,212,.25));border-color:rgba(165,180,252,.25);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 0 8px rgba(165,180,252,.15)}
+            #cxai-box #cxai-moreSettings input[type=checkbox]:checked:hover{background:linear-gradient(135deg,rgba(150,165,230,.50),rgba(94,234,212,.30));box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 0 12px rgba(165,180,252,.20)}
+            #cxai-box #cxai-moreSettings input[type=checkbox]:checked::before{transform:translateX(14px);background:linear-gradient(180deg,#e0e2ec,#c8cce0);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+            #cxai-box #cxai-moreSettings .cxai-pair{display:grid;grid-template-columns:1fr 1fr;gap:0 7px;padding:0}
+            #cxai-box #cxai-moreSettings .cxai-pair label{margin:0;padding:8px 6px;border-top:none!important}
+            #cxai-box #cxai-moreSettings .cxai-pair + *{border-top:1px solid rgba(255,255,255,.045)}
+            #cxai-box #cxai-moreSettings p{display:none}
+            #cxai-box #cxai-moreSettings span[style*="color:#888"]{color:rgba(120,130,150,.50)!important}
+            #cxai-box #cxai-moreSettings input[type=text],#cxai-box #cxai-moreSettings input[type=password],#cxai-box #cxai-moreSettings input[type=number]{padding:6px 9px;font-size:11.5px;border-radius:9px;border:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.20);color:rgba(220,224,236,.86);outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,.12);transition:all .18s ease;-webkit-font-smoothing:antialiased}
+            #cxai-box #cxai-moreSettings input[type=text]::-webkit-input-placeholder,#cxai-box #cxai-moreSettings input[type=password]::-webkit-input-placeholder,#cxai-box #cxai-moreSettings input[type=number]::-webkit-input-placeholder{color:rgba(120,130,150,.45)}
+            #cxai-box #cxai-moreSettings input[type=text]:hover,#cxai-box #cxai-moreSettings input[type=password]:hover,#cxai-box #cxai-moreSettings input[type=number]:hover{border-color:rgba(255,255,255,.135);background:rgba(0,0,0,.26)}
+            #cxai-box #cxai-moreSettings input[type=text]:focus,#cxai-box #cxai-moreSettings input[type=password]:focus,#cxai-box #cxai-moreSettings input[type=number]:focus{border-color:rgba(165,180,252,.26);box-shadow:0 0 0 2.5px rgba(165,180,252,.08),inset 0 1px 3px rgba(0,0,0,.12)}
+            #cxai-box #cxai-moreSettings select,#cxai-box .cxai-select,#cxai-box #cxai-provider,#cxai-box #cxai-model{-moz-appearance:none;-webkit-appearance:none;appearance:none;color-scheme:dark;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath fill='rgba(160,170,200,.5)' d='M0 2.5h10L5 7.5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-size:10px;padding-right:22px}
             /* ── Thinking (Hidden) ── */
             #cxai-box #cxai-thinking{display:none!important}
             /* ── Animations ── */
@@ -993,6 +970,16 @@ function showBox() {
             #cxai-box #cxai-log p{margin:0;padding:3px 0;word-break:break-all;transition:opacity .15s}
             #cxai-box #cxai-log hr{display:none}
             #cxai-box #cxai-log .cxai-time{color:rgba(165,180,252,.35);margin-right:7px;font-weight:400}
+            #cxai-copy-modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);display:none;justify-content:center;align-items:center;z-index:100000}
+            #cxai-copy-modal-content{background:#1e1e2e;padding:24px;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.4);width:80%;max-width:850px;max-height:90%;display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.08)}
+            #cxai-copy-modal-content h3{margin:0 0 16px;color:rgba(210,216,234,.95);font-size:15px;font-weight:600}
+            #cxai-copy-modal-view{width:100%;flex-grow:1;min-height:400px;height:500px;overflow-y:auto;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;box-sizing:border-box;background:#11111b;color:rgba(210,216,234,.90)}
+            
+            #cxai-copy-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+            #cxai-copy-modal-cancel{padding:7px 16px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:transparent;cursor:pointer;font-size:12px;color:rgba(180,186,206,.7)}
+            #cxai-copy-modal-cancel:hover{background:rgba(255,255,255,.05);color:rgba(210,216,234,.9)}
+            #cxai-copy-modal-copy{padding:7px 16px;border:none;border-radius:8px;background:linear-gradient(135deg,rgba(94,234,212,.25),rgba(165,180,252,.25));color:rgba(225,228,240,.95);cursor:pointer;font-size:12px;font-weight:500}
+            #cxai-copy-modal-copy:hover{background:linear-gradient(135deg,rgba(94,234,212,.35),rgba(165,180,252,.35))}
             `;
             top.document.head.appendChild(styleEl);
         }
@@ -1004,8 +991,8 @@ function showBox() {
                 </div>
                 <div class="cxai-body">
                     <div id="cxai-notice"></div>
-                    <div id="userInfo"></div>
-                    <div id="moreSettings" style="display:none;">
+                    <div id="cxai-userInfo"></div>
+                    <div id="cxai-moreSettings" style="display:none;">
                         <label class="cxai-field">API Key：<input type="password" id="cxaiSetting.apiKey" class="cxai-select" placeholder="输入API Key" style="width:100%;margin-top:2px;"></label>
                         <label class="cxai-field" id="cxai-ernie-secret" style="display:none">Secret Key：<input type="password" id="cxaiSetting.ernieSecretKey" class="cxai-select" placeholder="ERNIE Secret Key" style="width:100%;margin-top:2px;"></label>
                         <p></p>
@@ -1022,7 +1009,7 @@ function showBox() {
                             </label>
                         </div>
                         <div class="cxai-pair">
-                            <label><input type="checkbox" id="cxaiSetting.unlockPaste">解锁粘贴限制 <span style="font-size:10px;color:#888;opacity:0.7;">(刷新后生效)</span></label>
+                            <label><input type="checkbox" id="cxaiSetting.unlockPaste">解锁粘贴限制</label>
                             <label><input type="checkbox" id="cxaiSetting.sub">测验自动提交</label>
                         </div>
                         <div class="cxai-pair">
@@ -1032,7 +1019,7 @@ function showBox() {
                         <div class="cxai-pair">
                             <label><input type="checkbox" id="cxaiSetting.goodStudent">答案加粗不选择</label>
                             <label><input type="checkbox" id="cxaiSetting.alterTitle" checked>答案插入题目后</label>
-                        </div>
+                            </div>
                         <div class="cxai-pair">
                             <label><input type="checkbox" id="cxaiSetting.redo">重做模式</label>
                             <label><input type="checkbox" id="cxaiSetting.fuzzyMatch" checked>模糊匹配</label>
@@ -1128,14 +1115,14 @@ function showBox() {
 
         // 设置面板切换 + 复选框监听器
         (function () {
-            var moreSettings = document.getElementById('moreSettings');
-            var userInfo = document.getElementById('userInfo');
+            var moreSettings = document.getElementById('cxai-moreSettings');
+            var userInfo = document.getElementById('cxai-userInfo');
             if (!moreSettings || !userInfo) return;
 
-            // #moreSettingsBtn 由 $('#cxai-notice').html(...) 在后面动态注入，
-            // 此时还不存在，且每次 showBox() 都会被重建，因此使用事件委托。
+            // #cxai-moreSettingsBtn 由 $('#cxai-notice').html(...) 在后面动态注入，
+            // 此时还不存在，且每次 cxai_showBox() 都会被重建，因此使用事件委托。
             var isSettingsVisible = false;
-            $('#cxai-box').on('click', '#moreSettingsBtn', function () {
+            $('#cxai-box').on('click', '#cxai-moreSettingsBtn', function () {
                 userInfo.style.display = isSettingsVisible ? 'block' : 'none';
                 moreSettings.style.display = isSettingsVisible ? 'none' : 'block';
                 this.textContent = isSettingsVisible ? '设置' : '返回';
@@ -1154,7 +1141,7 @@ function showBox() {
             ['sub', 'force', 'examTurn', 'goodStudent', 'alterTitle', 'redo', 'fuzzyMatch', 'unlockPaste', 'thirdPartyApi', 'searchEnabled'].forEach(function (settingId) {
                 var checkbox = document.getElementById('cxaiSetting.' + settingId);
                 if (!checkbox) return;
-                checkbox.addEventListener('change', updateLocalStorage);
+                checkbox.addEventListener('change', cxai_updateLocalStorage);
                 checkbox.checked = localStorage.getItem('cxaiSetting.' + settingId) === 'true';
             });
             // 解锁粘贴：即时切换
@@ -1198,7 +1185,7 @@ function showBox() {
                 var savedInterval = localStorage.getItem('cxaiSetting.reqIntervalTime');
                 reqIntervalInput.value = (savedInterval !== null && isFinite(parseInt(savedInterval, 10)))
                     ? savedInterval
-                    : String(setting.reqIntervalTime || 0);
+                    : String(cxaiCfg.reqIntervalTime || 0);
                 reqIntervalInput.addEventListener('input', function () {
                     var v = parseInt(reqIntervalInput.value, 10);
                     if (!isFinite(v) || v < 0) v = 0;
@@ -1219,14 +1206,14 @@ function showBox() {
                 var savedHost = localStorage.getItem('cxaiSetting.apiHost');
                 if (savedHost) {
                     apiHostInput.value = savedHost;
-                    setting.apiHost = savedHost;
+                    cxaiCfg.apiHost = savedHost;
                 }
                 apiHostInput.addEventListener('change', function () {
                     var v = apiHostInput.value.replace(/\/+$/, '');
                     apiHostInput.value = v;
                     localStorage.setItem('cxaiSetting.apiHost', v);
-                    setting.apiHost = v;
-                    _host = v;
+                    cxaiCfg.apiHost = v;
+                    cxai_host = v;
                 });
             }
             // 每个 Provider 独立 API Key 存取
@@ -1285,16 +1272,16 @@ function showBox() {
     } else {
         $('#cxai-log', window.parent.document).html('')
     }
-    let _u = getCk('_uid') || getCk('UID')
+    let _u = cxai_getCk('_uid') || cxai_getCk('UID')
     // 生成 Provider 下拉选项
     var _providerOpts = '';
     $.each(PROVIDERS, function (k, v) { _providerOpts += '<option value="' + k + '">' + v.name + '</option>'; });
     $('#cxai-notice').html(`
-        <div class="cxai-uid">学习通账号 UID：<b>${_u || '-'}</b></div>
+        <div class="cxai-uid">学习通账号 UID：<b>${_u || '-'}</b> <button id="cxai-copy-btn" class="cxai-btn cxai-btn-primary" title="一键提取页面所有题目到剪贴板，可粘贴到搜索网站找答案" style="padding:4px 12px;font-size:12px;margin-left:8px;vertical-align:middle;">📋 复制题目</button></div>
         <div class="cxai-row">
             <select id="cxai-provider" class="cxai-select" style="flex:1;min-width:0;">${_providerOpts}</select>
             <select id="cxai-model" class="cxai-select" style="flex:1;min-width:0;"></select>
-            <button id="moreSettingsBtn" class="cxai-btn cxai-btn-secondary">设置</button>
+            <button id="cxai-moreSettingsBtn" class="cxai-btn cxai-btn-secondary">设置</button>
         </div>
     `);
 
@@ -1346,17 +1333,17 @@ function showBox() {
     // Provider 状态提示
     var _cfg = cxaiGetProviderConfig();
     if (_cfg.apiKey) {
-        $('#userInfo').html('当前: <b>' + _cfg.provider.name + '</b> / ' + _cfg.model);
-    } else if (setting.apiHost) {
-        _host = setting.apiHost;
-        $('#userInfo').html('代理模式: <b>' + setting.apiHost + '</b>');
+        $('#cxai-userInfo').html('当前: <b>' + _cfg.provider.name + '</b> / ' + _cfg.model);
+    } else if (cxaiCfg.apiHost) {
+        cxai_host = cxaiCfg.apiHost;
+        $('#cxai-userInfo').html('代理模式: <b>' + cxaiCfg.apiHost + '</b>');
     } else {
-        $('#userInfo').html('请在设置中配置 API Key 或代理地址');
+        $('#cxai-userInfo').html('请在设置中配置 API Key 或代理地址');
     }
 }
 
 
-function logger(str, color) {
+function cxai_logger(str, color) {
     var _time = new Date().toLocaleTimeString()
     var c = _cxaiLogColorMap[color] || color || '#334155'
     var $p = $('<p><span class="cxai-time">[' + _time + ']</span><span class="cxai-msg" style="color:' + c + ';">' + str + '</span></p>')
@@ -1365,7 +1352,7 @@ function logger(str, color) {
 }
 
 
-function updateLogEntry($p, str, color) {
+function cxai_updateLogEntry($p, str, color) {
     if (!$p || !$p.length) return
     var c = _cxaiLogColorMap[color] || color || '#334155'
     $p.find('.cxai-msg').css('color', c).html(str)
@@ -1373,7 +1360,7 @@ function updateLogEntry($p, str, color) {
 
 
 // ── 日志更新 ──
-// 原地更新一条已存在的日志(由 logger 返回的 jQuery <p> 元素)。
+// 原地更新一条已存在的日志(由 cxai_logger 返回的 jQuery <p> 元素)。
 // 用于把 "AI 思考中..." 占位行原地替换为答案/错误提示, 避免反复出现/消失。
 
 
@@ -1382,7 +1369,7 @@ function updateLogEntry($p, str, color) {
 //  章节跳转、任务队列、子页面检测、课程列表刷新
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function checkBrowser() {
+function cxai_checkBrowser() {
     var userAgent = navigator.userAgent
     if (userAgent.indexOf('Chrome') == -1 || GM_info.scriptHandler != 'ScriptCat') {
         // 非推荐环境，但不弹出警告
@@ -1391,7 +1378,7 @@ function checkBrowser() {
 }
 
 
-function parseUrlParams() {
+function cxai_parseUrlParams() {
     let query = window.location.search.substring(1);
     let vars = query.split("&");
     let _p = {}
@@ -1403,19 +1390,19 @@ function parseUrlParams() {
 }
 
 
-function getStr(str, start, end) {
+function cxai_getStr(str, start, end) {
     let res = str.match(new RegExp(`${start}(.*?)${end}`))
     return res ? res[1] : null
 }
 
 
-function getTaskParams() {
+function cxai_getTaskParams() {
     try {
         var _iframeScripts = _d.scripts,
             _p = null;
         for (let i = 0; i < _iframeScripts.length; i++) {
             if (_iframeScripts[i].innerHTML.indexOf('mArg = "";') != -1 && _iframeScripts[i].innerHTML.indexOf('==UserScript==') == -1) {
-                _p = getStr(_iframeScripts[i].innerHTML.replace(/\s/g, ""), 'try{mArg=', ';}catch');
+                _p = cxai_getStr(_iframeScripts[i].innerHTML.replace(/\s/g, ""), 'try{mArg=', ';}catch');
                 return _p
             }
         }
@@ -1427,13 +1414,13 @@ function getTaskParams() {
 }
 
 
-function getCk(name) {
+function cxai_getCk(name) {
     return document.cookie.match(`[;\\s+]?${name}=([^;]*)`)?.pop();
 }
 
 
-function toNext() {
-    refreshCourseList().then((res) => {
+function cxai_toNext() {
+    cxai_refreshCourseList().then((res) => {
 
         // 检测当前课时是否还有未完成的页面（兼容多种 DOM 结构）
         // 返回 { activeIndex, total, hasNext, tabs } 或 null
@@ -1499,18 +1486,18 @@ function toNext() {
         // 优先级 1：当前课时若仍有未完成的页面，先切换到下一页，避免漏刷
         var sub = detectSubTabPosition()
         if (sub && sub.hasNext) {
-            logger('当前课时存在未完成页面（' + (sub.activeIndex + 1) + '/' + sub.total + '），准备切换到下一页', 'blue')
+            cxai_logger('当前课时存在未完成页面（' + (sub.activeIndex + 1) + '/' + sub.total + '），准备切换到下一页', 'blue')
             setTimeout(() => {
                 if (!clickNextPageBtn()) {
-                    logger('未找到本课时下一页按钮，回退到下一章节跳转', 'orange')
+                    cxai_logger('未找到本课时下一页按钮，回退到下一章节跳转', 'orange')
                     clickNextChapterBtn()
                 }
             }, 5000)
             return
         }
 
-        if (setting.review || !setting.work) {
-            logger('本课时已无未完成页面，准备切换到下一章节', 'blue')
+        if (cxaiCfg.review || !cxaiCfg.work) {
+            cxai_logger('本课时已无未完成页面，准备切换到下一章节', 'blue')
             setTimeout(() => { clickNextChapterBtn() }, 5000)
             return
         }
@@ -1532,7 +1519,7 @@ function toNext() {
             if (_t[_curIndex]['status'].indexOf('待完成') != -1) {
                 var subAgain = detectSubTabPosition()
                 if (subAgain && subAgain.hasNext) {
-                    logger('兜底检测到本课时仍有未完成页面（' + (subAgain.activeIndex + 1) + '/' + subAgain.total + '），切换到下一页', 'blue')
+                    cxai_logger('兜底检测到本课时仍有未完成页面（' + (subAgain.activeIndex + 1) + '/' + subAgain.total + '），切换到下一页', 'blue')
                     setTimeout(() => {
                         if (!clickNextPageBtn()) clickNextChapterBtn()
                     }, 5000)
@@ -1543,95 +1530,95 @@ function toNext() {
             if (t['status'].indexOf('待完成') != -1) {
                 setTimeout(() => {
                     clickNextChapterBtn()
-                    showBox()
+                    cxai_showBox()
                 }, 5000)
                 return
             } else if (t['status'].indexOf('闯关') != -1) {
-                logger('当前为闯关模式，存在未完成任务点，脚本已暂停运行，请手动完成并点击下一章节', 'red')
+                cxai_logger('当前为闯关模式，存在未完成任务点，脚本已暂停运行，请手动完成并点击下一章节', 'red')
                 return
             } else if (t['status'].indexOf('开放') != -1) {
-                logger('章节未开放', 'red')
+                cxai_logger('章节未开放', 'red')
                 return
             } else {
                 //  console.log(t)
             }
         }
-        logger('此课程处理完毕', 'green')
+        cxai_logger('此课程处理完毕', 'green')
         return
     }).catch(function (err) {
-        logger('获取课程列表失败: ' + (err && err.message || err || '未知错误') + '，5秒后重试', 'red')
-        setTimeout(toNext, 5000)
+        cxai_logger('获取课程列表失败: ' + (err && err.message || err || '未知错误') + '，5秒后重试', 'red')
+        setTimeout(cxai_toNext, 5000)
     })
 }
 
 
-function missonStart() {
-    showBox()
-    if (_mlist.length <= 0) {
-        logger('此页面任务处理完毕，准备跳转页面', 'green')
-        return toNext()
+function cxai_missonStart() {
+    cxai_showBox()
+    if (cxai_mlist.length <= 0) {
+        cxai_logger('此页面任务处理完毕，准备跳转页面', 'green')
+        return cxai_toNext()
     }
-    let _type = _mlist[0]['type'],
+    let _type = cxai_mlist[0]['type'],
         _dom = _domList[0],
-        _task = _mlist[0];
+        _task = cxai_mlist[0];
     if (_type == undefined) {
-        _type = _mlist[0]['property']["module"]
+        _type = cxai_mlist[0]['property']["module"]
     }
     switch (_type) {
         case "video":
-            if (_mlist[0]['property']['module'] == 'insertvideo') {
-                logger('开始处理视频', 'purple')
-                missonVideo(_dom, _task)
+            if (cxai_mlist[0]['property']['module'] == 'insertvideo') {
+                cxai_logger('开始处理视频', 'purple')
+                cxai_missonVideo(_dom, _task)
                 break
-            } else if (_mlist[0]['property']['module'] == 'insertaudio') {
-                logger('开始处理音频', 'purple')
-                missonVideo(_dom, _task)
+            } else if (cxai_mlist[0]['property']['module'] == 'insertaudio') {
+                cxai_logger('开始处理音频', 'purple')
+                cxai_missonVideo(_dom, _task)
                 break
             } else {
-                logger('未知类型任务，请联系作者，跳过', 'red')
-                switchMission()
+                cxai_logger('未知类型任务，请联系作者，跳过', 'red')
+                cxai_switchMission()
                 break
             }
         case "workid":
-            logger('开始处理测验', 'purple')
-            missonWork(_dom, _task)
+            cxai_logger('开始处理测验', 'purple')
+            cxai_missonWork(_dom, _task)
             break
         case "document":
-            logger('开始处理文档', 'purple')
-            missonDoucument(_dom, _task)
+            cxai_logger('开始处理文档', 'purple')
+            cxai_missonDoucument(_dom, _task)
             break
         case "read":
-            logger('开始处理阅读', 'purple')
-            missonRead(_dom, _task)
+            cxai_logger('开始处理阅读', 'purple')
+            cxai_missonRead(_dom, _task)
             break
         case "insertbook":
-            logger('开始处理读书', 'purple')
-            missonBook(_dom, _task)
+            cxai_logger('开始处理读书', 'purple')
+            cxai_missonBook(_dom, _task)
             break
         default: {
             // 无需处理或不算任务点的占位类型：图片、答疑、分享、外链题库等
             let GarbageTasks = ['insertimage', 'insertanswerquestion', 'insertshare', 'insertquestion', 'insertdiscuss', 'insertsubject']
             if (GarbageTasks.indexOf(_type) != -1) {
-                logger('发现无需处理任务（' + _type + '），跳过。', 'red')
-                switchMission()
+                cxai_logger('发现无需处理任务（' + _type + '），跳过。', 'red')
+                cxai_switchMission()
             } else {
-                logger('暂不支持处理此类型:' + _type + '，跳过。', 'red')
-                switchMission()
+                cxai_logger('暂不支持处理此类型:' + _type + '，跳过。', 'red')
+                cxai_switchMission()
             }
         }
     }
 }
 
 
-function switchMission() {
-    _mlist.splice(0, 1)
+function cxai_switchMission() {
+    cxai_mlist.splice(0, 1)
     _domList.splice(0, 1)
-    setTimeout(missonStart, 5000)
+    setTimeout(cxai_missonStart, 5000)
 }
 
 
-function refreshCourseList() {
-    let _p = parseUrlParams()
+function cxai_refreshCourseList() {
+    let _p = cxai_parseUrlParams()
     return new Promise((resolve, reject) => {
         $.ajax({
             url: _l.protocol + '//' + _l.host + '/mycourse/studentstudycourselist?courseId=' + _p['courseid'] + '&chapterId=' + _p['knowledgeid'] + '&clazzid=' + _p['clazzid'] + '&mooc2=1',
@@ -1641,7 +1628,7 @@ function refreshCourseList() {
                 resolve(res)
             },
             error: function (xhr, status, err) {
-                logger('课程列表刷新失败: ' + (status || err || '未知错误'), 'red')
+                cxai_logger('课程列表刷新失败: ' + (status || err || '未知错误'), 'red')
                 reject(err || new Error(status))
             }
         })
@@ -1650,28 +1637,12 @@ function refreshCourseList() {
 }
 
 
-function showThinking() {
-    _cxaiThinkingCount++;
-    if (_cxaiThinkingCount === 1) {
-        $('#cxai-thinking', window.parent.document).addClass('cxai-active');
-    }
-}
-
-
-function hideThinking() {
-    if (_cxaiThinkingCount > 0) _cxaiThinkingCount--;
-    if (_cxaiThinkingCount === 0) {
-        $('#cxai-thinking', window.parent.document).removeClass('cxai-active');
-    }
-}
-
-
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 6. 视频/音频任务
 //  视频播放控制、倍速锁定、播放速率检测
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function missonVideo(dom, obj) {
+function cxai_missonVideo(dom, obj) {
     const { isPassed, otherInfo, property } = obj;
     const { _jobid: jobId, name, objectid: objectId, module } = property;
 
@@ -1679,14 +1650,14 @@ function missonVideo(dom, obj) {
     const isAudioTask = module === 'insertaudio';
     const taskLabel = isAudioTask ? '音频' : '视频';
 
-    if (isAudioTask ? !setting.audio : !setting.video) {
-        logger(`用户设置不处理${taskLabel}任务，准备开始下一个任务。`, 'red');
-        return setTimeout(switchMission, 3000);
+    if (isAudioTask ? !cxaiCfg.audio : !cxaiCfg.video) {
+        cxai_logger(`用户设置不处理${taskLabel}任务，准备开始下一个任务。`, 'red');
+        return setTimeout(cxai_switchMission, 3000);
     }
 
-    if (!setting.review && isPassed === true) {
-        logger(`${taskLabel}：${name} 检测已完成，准备处理下一个任务`, 'green');
-        return switchMission();
+    if (!cxaiCfg.review && isPassed === true) {
+        cxai_logger(`${taskLabel}：${name} 检测已完成，准备处理下一个任务`, 'green');
+        return cxai_switchMission();
     }
 
     // 使用传入的 dom 参数查找相关的 iframe，而不是搜索整个文档
@@ -1694,11 +1665,11 @@ function missonVideo(dom, obj) {
     let mediaType = isAudioTask ? 'audio' : 'video'; // 按任务类型预设，循环里再以 DOM 为准
 
     if (!target) {
-        logger(`未找到${taskLabel} iframe，3 秒后重试……`, 'orange');
-        return setTimeout(() => missonVideo(dom, obj), 3000);
+        cxai_logger(`未找到${taskLabel} iframe，3 秒后重试……`, 'orange');
+        return setTimeout(() => cxai_missonVideo(dom, obj), 3000);
     }
 
-    logger(`处理${taskLabel}：${name}，正在解析`);
+    cxai_logger(`处理${taskLabel}：${name}，正在解析`);
     let executed = false;
     const doc = target.contentDocument || target.contentWindow.document;
 
@@ -1715,19 +1686,19 @@ function missonVideo(dom, obj) {
             clearInterval(intervalId);
 
             // 计算最终倍速：优先用户设置；若超星禁用了倍速菜单则强制 1×
-            const userRate = getRate();
-            const rateDisabled = mediaType === 'video' && isPlaybackRateDisabled(doc);
+            const userRate = cxai_getRate();
+            const rateDisabled = mediaType === 'video' && cxai_isPlaybackRateDisabled(doc);
             const finalRate = rateDisabled ? 1 : userRate;
             if (rateDisabled && userRate > 1) {
-                logger(`${name} 超星禁用了此视频的倍速菜单，已回退至 1×（强行倍速会被清空进度）`, 'orange');
+                cxai_logger(`${name} 超星禁用了此视频的倍速菜单，已回退至 1×（强行倍速会被清空进度）`, 'orange');
             } else if (userRate > 1) {
-                logger(`已开启倍速：${userRate}×（高倍速可能被超星判定异常）`, 'orange');
+                cxai_logger(`已开启倍速：${userRate}×（高倍速可能被超星判定异常）`, 'orange');
             }
 
-            logger(`${name} - ${mediaType} 播放成功，开始控制播放（${finalRate}×）`);
+            cxai_logger(`${name} - ${mediaType} 播放成功，开始控制播放（${finalRate}×）`);
             media.pause();
             media.muted = true;
-            hookMediaRate(media, finalRate);
+            cxai_hookMediaRate(media, finalRate);
             media.play();
 
             // 防止暂停的通用恢复函数
@@ -1749,7 +1720,7 @@ function missonVideo(dom, obj) {
                     if (!rateRestored && isFinite(media.duration) && media.duration - media.currentTime < 10) {
                         rateRestored = true;
                         try { delete media.playbackRate; } catch (_) { /* empty */ }
-                        hookMediaRate(media, 1);
+                        cxai_hookMediaRate(media, 1);
                         media.removeEventListener('timeupdate', onTimeUpdate);
                     }
                 };
@@ -1757,17 +1728,17 @@ function missonVideo(dom, obj) {
             }
 
             media.addEventListener('ended', () => {
-                logger(`${name} - ${mediaType} 已播放完成`);
+                cxai_logger(`${name} - ${mediaType} 已播放完成`);
                 media.removeEventListener('pause', resume);
                 clearInterval(intervalId);
-                setTimeout(switchMission, 1000);
+                setTimeout(cxai_switchMission, 1000);
             });
         }
     }, 2500);
 }
 
 
-function hookMediaRate(media, rate) {
+function cxai_hookMediaRate(media, rate) {
     try { media.playbackRate = rate; } catch (_) { /* empty */ }
     try {
         Object.defineProperty(media, 'playbackRate', {
@@ -1787,7 +1758,7 @@ function hookMediaRate(media, rate) {
 }
 
 
-function isPlaybackRateDisabled(iframeDocument) {
+function cxai_isPlaybackRateDisabled(iframeDocument) {
     try {
         var items = iframeDocument.querySelectorAll('.vjs-playback-rate .vjs-menu-content .vjs-menu-item');
         return items.length === 0;
@@ -1797,22 +1768,16 @@ function isPlaybackRateDisabled(iframeDocument) {
 }
 
 
-// ── 倍速锁定 & 播放器检测 ──
-// 强锁 playbackRate：用 Object.defineProperty 阻止超星播放器把倍速改回 1
-// 失败则降级为 ratechange 监听守护，仍尽力维持倍速
-
-// 超星 video.js 播放器若禁用了倍速，倍速菜单会无项 → 视为禁用
-
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 7. 读书/文档/阅读任务
 //  书籍、文档、阅读类任务点处理
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function missonBook(dom, obj) {
-    if (setting.task) {
+function cxai_missonBook(dom, obj) {
+    if (cxaiCfg.task) {
         if (obj['jobid'] == undefined) {
-            logger("当前只处理任务点任务,跳过", 'red')
-            switchMission()
+            cxai_logger("当前只处理任务点任务,跳过", 'red')
+            cxai_switchMission()
             return
         }
     }
@@ -1823,8 +1788,8 @@ function missonBook(dom, obj) {
         courseId = _defaults['courseid'],
         clazzId = _defaults['clazzId'];
     if (obj['job'] == undefined) {
-        logger('读书：' + name + '检测已完成，准备执行下一个任务。', 'green')
-        switchMission()
+        cxai_logger('读书：' + name + '检测已完成，准备执行下一个任务。', 'green')
+        cxai_switchMission()
         return
     }
     $.ajax({
@@ -1832,22 +1797,22 @@ function missonBook(dom, obj) {
         method: 'GET',
         success: function (res) {
             if (res.status) {
-                logger('读书：' + name + res.msg + ',准备执行下一个任务。', 'green')
+                cxai_logger('读书：' + name + res.msg + ',准备执行下一个任务。', 'green')
             } else {
-                logger('读书：' + name + '处理异常,跳过。', 'red')
+                cxai_logger('读书：' + name + '处理异常,跳过。', 'red')
             }
-            switchMission()
+            cxai_switchMission()
             return
         },
     })
 }
 
 
-function missonDoucument(dom, obj) {
-    if (setting.task) {
+function cxai_missonDoucument(dom, obj) {
+    if (cxaiCfg.task) {
         if (obj['jobid'] == undefined) {
-            logger("当前只处理任务点任务,跳过", 'red')
-            switchMission()
+            cxai_logger("当前只处理任务点任务,跳过", 'red')
+            cxai_switchMission()
             return
         }
     }
@@ -1858,8 +1823,8 @@ function missonDoucument(dom, obj) {
         courseId = _defaults['courseid'],
         clazzId = _defaults['clazzId'];
     if (obj['job'] == undefined) {
-        logger('文档：' + name + '检测已完成，准备执行下一个任务。', 'green')
-        switchMission()
+        cxai_logger('文档：' + name + '检测已完成，准备执行下一个任务。', 'green')
+        cxai_switchMission()
         return
     }
     $.ajax({
@@ -1867,11 +1832,11 @@ function missonDoucument(dom, obj) {
         method: 'GET',
         success: function (res) {
             if (res.status) {
-                logger('文档：' + name + res.msg + ',准备执行下一个任务。', 'green')
+                cxai_logger('文档：' + name + res.msg + ',准备执行下一个任务。', 'green')
             } else {
-                logger('文档：' + name + '处理异常,跳过。', 'red')
+                cxai_logger('文档：' + name + '处理异常,跳过。', 'red')
             }
-            switchMission()
+            cxai_switchMission()
             return
         },
     })
@@ -1879,11 +1844,11 @@ function missonDoucument(dom, obj) {
 }
 
 
-function missonRead(dom, obj) {
-    if (setting.task) {
+function cxai_missonRead(dom, obj) {
+    if (cxaiCfg.task) {
         if (obj['jobid'] == undefined) {
-            logger("当前只处理任务点任务,跳过", 'red')
-            switchMission()
+            cxai_logger("当前只处理任务点任务,跳过", 'red')
+            cxai_switchMission()
             return
         }
     }
@@ -1894,8 +1859,8 @@ function missonRead(dom, obj) {
         courseId = _defaults['courseid'],
         clazzId = _defaults['clazzId'];
     if (obj['job'] == undefined) {
-        logger('阅读：' + name + ',检测已完成，准备执行下一个任务。', 'green')
-        switchMission()
+        cxai_logger('阅读：' + name + ',检测已完成，准备执行下一个任务。', 'green')
+        cxai_switchMission()
         return
     }
     $.ajax({
@@ -1903,11 +1868,11 @@ function missonRead(dom, obj) {
         method: 'GET',
         success: function (res) {
             if (res.status) {
-                logger('阅读：' + name + res.msg + ',准备执行下一个任务。', 'green')
+                cxai_logger('阅读：' + name + res.msg + ',准备执行下一个任务。', 'green')
             } else {
-                logger('阅读：' + name + '处理异常,跳过。', 'red')
+                cxai_logger('阅读：' + name + '处理异常,跳过。', 'red')
             }
-            switchMission()
+            cxai_switchMission()
             return
         }
     })
@@ -1919,88 +1884,88 @@ function missonRead(dom, obj) {
 //  手机端/PC端测验处理、作业答题、逐题作答逻辑
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function missonWork(dom, obj) {
-    if (!setting.work) {
-        logger('用户设置不自动处理测验，准备处理下一个任务', 'green')
-        switchMission()
+function cxai_missonWork(dom, obj) {
+    if (!cxaiCfg.work) {
+        cxai_logger('用户设置不自动处理测验，准备处理下一个任务', 'green')
+        cxai_switchMission()
         return
     }
     let isDo;
-    if (setting.task) {
-        logger("当前只处理任务点任务", 'red')
+    if (cxaiCfg.task) {
+        cxai_logger("当前只处理任务点任务", 'red')
         if (obj['jobid'] == undefined ? false : true) {
             isDo = true
         } else {
             isDo = false
         }
     } else {
-        logger("当前默认处理所有任务（包括非任务点任务）", 'red')
+        cxai_logger("当前默认处理所有任务（包括非任务点任务）", 'red')
         isDo = true
     }
     if (isDo) {
         if (obj['jobid'] !== undefined) {
             var phoneWeb = _l.protocol + '//' + _l.host + '/work/phone/work?workId=' + obj['jobid'].replace('work-', '') + '&courseId=' + _defaults['courseid'] + '&clazzId=' + _defaults['clazzId'] + '&knowledgeId=' + _defaults['knowledgeid'] + '&jobId=' + obj['jobid'] + '&enc=' + obj['enc']
-            // setTimeout(() => { startDoCyWork(0, dom) }, 3000)
-            setTimeout(() => { startDoPhoneCyWork(0, dom, phoneWeb) }, 3000)
+            // setTimeout(() => { cxai_startDoCyWork(0, dom) }, 3000)
+            setTimeout(() => { cxai_startDoPhoneCyWork(0, dom, phoneWeb) }, 3000)
         } else {
-            setTimeout(() => { startDoCyWork(0, dom) }, 3000)
+            setTimeout(() => { cxai_startDoCyWork(0, dom) }, 3000)
         }
         // } else if (!GM_getValue('cando')) {
-        //     logger('存在未完成任务点，脚本已暂停执行，请手动处理后刷新网页。', 'red')
+        //     cxai_logger('存在未完成任务点，脚本已暂停执行，请手动处理后刷新网页。', 'red')
         //     return
     } else {
-        logger('用户设置只处理属于任务点的任务，准备处理下一个任务', 'green')
-        switchMission()
+        cxai_logger('用户设置只处理属于任务点的任务，准备处理下一个任务', 'green')
+        cxai_switchMission()
         return
     }
 }
 
 
-function doPhoneWork($dom) {
+function cxai_doPhoneWork($dom) {
     let $cy = $dom.find('.Wrappadding form')
     $subBtn = $cy.find('.zquestions .zsubmit .btn-ok-bottom')
     $okBtn = $dom.find('#okBtn')
     $saveBtn = $cy.find('.zquestions .zsubmit .btn-save')
     let TimuList = $cy.find('.zquestions .Py-mian1')
-    startDoPhoneTimu(0, TimuList)
+    cxai_startDoPhoneTimu(0, TimuList)
 }
 
 
-function startDoPhoneTimu(index, TimuList) {
+function cxai_startDoPhoneTimu(index, TimuList) {
     if (index == TimuList.length) {
         if (localStorage.getItem('cxaiSetting.sub') === 'true') {
-            logger('测验处理完成，准备自动提交。', 'green')
+            cxai_logger('测验处理完成，准备自动提交。', 'green')
             setTimeout(() => {
                 $subBtn.click()
                 setTimeout(() => {
                     $okBtn.click()
-                    logger('提交成功，准备切换下一个任务。', 'green')
-                    _mlist.splice(0, 1)
+                    cxai_logger('提交成功，准备切换下一个任务。', 'green')
+                    cxai_mlist.splice(0, 1)
                     _domList.splice(0, 1)
-                    setTimeout(() => { switchMission() }, 3000)
+                    setTimeout(() => { cxai_switchMission() }, 3000)
                 }, 3000)
             }, 5000)
         } else if (localStorage.getItem('cxaiSetting.force') === 'true') {
-            logger('测验处理完成，存在无答案题目,由于用户设置了强制提交，准备自动提交。', 'red')
+            cxai_logger('测验处理完成，存在无答案题目,由于用户设置了强制提交，准备自动提交。', 'red')
             setTimeout(() => {
                 $subBtn.click()
                 setTimeout(() => {
                     $okBtn.click()
-                    logger('提交成功，准备切换下一个任务。', 'green')
-                    _mlist.splice(0, 1)
+                    cxai_logger('提交成功，准备切换下一个任务。', 'green')
+                    cxai_mlist.splice(0, 1)
                     _domList.splice(0, 1)
-                    setTimeout(() => { switchMission() }, 3000)
+                    setTimeout(() => { cxai_switchMission() }, 3000)
                 }, 3000)
             }, 5000)
         } else {
-            logger('测验处理完成，存在无答案题目或用户设置不自动提交，自动保存！', 'green')
+            cxai_logger('测验处理完成，存在无答案题目或用户设置不自动提交，自动保存！', 'green')
             setTimeout(() => {
                 $saveBtn.click()
                 setTimeout(() => {
-                    logger('保存成功，准备切换下一个任务。', 'green')
-                    _mlist.splice(0, 1)
+                    cxai_logger('保存成功，准备切换下一个任务。', 'green')
+                    cxai_mlist.splice(0, 1)
                     _domList.splice(0, 1)
-                    setTimeout(() => { switchMission() }, 3000)
+                    setTimeout(() => { cxai_switchMission() }, 3000)
                 }, 3000)
             }, 5000)
         }
@@ -2009,9 +1974,9 @@ function startDoPhoneTimu(index, TimuList) {
     // 获取当前题目所属的window对象 (可能是iframe)
     let contextWindow = TimuList[index] ? (TimuList[index].ownerDocument.defaultView || unsafeWindow) : unsafeWindow;
     let questionFull = $(TimuList[index]).find('.Py-m1-title').html()
-    let _question = tidyQuestion(questionFull).replace(/.*?\[.*?题\]\s*\n\s*/, '').trim()
+    let _question = cxai_tidyQuestion(questionFull).replace(/.*?\[.*?题\]\s*\n\s*/, '').trim()
     let _questionImages = cxaiExtractImages(questionFull)
-    if (_questionImages.length > 0) { logger('检测到题目包含 ' + _questionImages.length + ' 张图片', 'blue') }
+    if (_questionImages.length > 0) { cxai_logger('检测到题目包含 ' + _questionImages.length + ' 张图片', 'blue') }
     let typeName = questionFull.match(/.*?[\[(](.*?)[\])]|$/)[1];
     let _type = ({
         单选题: 0, 单项选择题: 0, 单选: 0, 选择题: 0,
@@ -2029,7 +1994,7 @@ function startDoPhoneTimu(index, TimuList) {
 
     // 如果题型不在预设类型中，根据DOM结构自动识别题型
     if (_type === undefined) {
-        logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
+        cxai_logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
 
         // 检查选项列表特征
         let singleChoiceList = $(TimuList[index]).find('.answerList.singleChoice li');
@@ -2037,22 +2002,22 @@ function startDoPhoneTimu(index, TimuList) {
 
         if (singleChoiceList && singleChoiceList.length > 0) {
             _type = 0; // 单选题
-            logger('自动识别为单选题', 'green');
+            cxai_logger('自动识别为单选题', 'green');
         } else if (multiChoiceList && multiChoiceList.length > 0) {
             _type = 1; // 多选题
-            logger('自动识别为多选题', 'green');
+            cxai_logger('自动识别为多选题', 'green');
         } else {
             // 检查是否为填空题
             let tkList = $(TimuList[index]).find('.blankList2 input');
             if (tkList && tkList.length > 0) {
                 _type = 2; // 填空题
-                logger('自动识别为填空题', 'green');
+                cxai_logger('自动识别为填空题', 'green');
             } else {
                 // 判断题等其他情况
                 let panduanList = $(TimuList[index]).find('.answerList.panduan li');
                 if (panduanList && panduanList.length > 0) {
                     _type = 3; // 判断题
-                    logger('自动识别为判断题', 'green');
+                    cxai_logger('自动识别为判断题', 'green');
                 } else {
                     // 检查是否为简答题或材料题
                     let textareaList = $(TimuList[index]).find('textarea');
@@ -2060,14 +2025,14 @@ function startDoPhoneTimu(index, TimuList) {
 
                     if ((textareaList && textareaList.length > 0) || (editorList && editorList.length > 0)) {
                         _type = 4; // 简答题
-                        logger('自动识别为简答题或材料题', 'green');
+                        cxai_logger('自动识别为简答题或材料题', 'green');
                     }
                 }
             }
         }
     }
 
-    _currentQuestionMeta = { index: index, total: TimuList.length, typeName: typeName, questionText: _question }
+    cxai_currentQuestionMeta = { index: index, total: TimuList.length, typeName: typeName, questionText: _question }
     switch (_type) {
         case 0: {
             //遍历选项列表
@@ -2079,17 +2044,17 @@ function startDoPhoneTimu(index, TimuList) {
             });
             mergedAnswers = mergedAnswers.join("|");
 
-            _question = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
+            _question = cxai_buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
             //判断题目是否已作答
             var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if ($(_answerTmpArr[i]).attr('aria-label')) {
-                    if (!isRedoMode()) {
-                        logger(index + 1 + '此题已作答，准备切换下一题', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green')
                         check_answer_flag = 1;
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30)
                     } else {
-                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
+                        if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).click()
@@ -2099,31 +2064,31 @@ function startDoPhoneTimu(index, TimuList) {
                 }
             }
             if (check_answer_flag == 0) {
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     _answerTmpArr = $(TimuList[index]).find('.answerList.singleChoice li')
                     $.each(_answerTmpArr, (i, t) => {
-                        _a.push(tidyStr($(t).html()).replace(/^[A-Z]\s*\n\s*/, '').trim())
+                        _a.push(cxai_tidyStr($(t).html()).replace(/^[A-Ga-g][.、]?\s*\n?\s*/, '').trim())
                     })
                     let _i = cxaiMatchByLetter(agrs, _a.length);
                     if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
-                    if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                    if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                     if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                     if (_i == -1) {
-                        logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        // setting.sub = 0
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
+                        // cxaiCfg.sub = 0
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     } else {
                         if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
                             $(_answerTmpArr[_i]).find('span').css('font-weight', 'bold');
                         } else {
                             $(_answerTmpArr[_i]).click()
                         }
-                        logger('自动答题成功，准备切换下一题', 'green')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('自动答题成功，准备切换下一题', 'green')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }
                 }).catch(() => {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
         }
@@ -2137,18 +2102,18 @@ function startDoPhoneTimu(index, TimuList) {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
+            _question = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
             //判断题目是否已作答
             var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if ($(_answerTmpArr[i]).attr('aria-label')) {
-                    if (!isRedoMode()) {
-                        logger(index + 1 + '此题已作答，准备切换下一题', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green')
                         check_answer_flag = 1;
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30)
                         break
                     } else {
-                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
+                        if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).click()
@@ -2158,17 +2123,17 @@ function startDoPhoneTimu(index, TimuList) {
                 }
             }
             if (check_answer_flag == 0) {
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
-                        logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        // setting.sub = 0
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
+                        // cxaiCfg.sub = 0
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     } else {
                         _answerTmpArr = $(TimuList[index]).find('.answerList.multiChoice li')
                         let _multiOptions = []
                         $.each(_answerTmpArr, (i, t) => {
-                            _multiOptions.push(tidyStr($(t).html()).replace(/^[A-Z]\s*\n\s*/, '').trim())
+                            _multiOptions.push(cxai_tidyStr($(t).html()).replace(/^[A-Ga-g][.、]?\s*\n?\s*/, '').trim())
                         })
                         let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _multiOptions.length);
                         if (_matchedIndices.length === 0) {
@@ -2192,22 +2157,26 @@ function startDoPhoneTimu(index, TimuList) {
                         // 最终检查（等待点击+补选全部完成）
                         var _totalWait = 300 + _answerTmpArr.length * 600 + _matchedIndices.length * 600 + 500 + (_matchedIndices.length) * 500 + 600;
                         setTimeout(() => {
-                            var allSelected = true;
-                            for (var ci = 0; ci < _matchedIndices.length; ci++) {
-                                if (($(_answerTmpArr[_matchedIndices[ci]]).attr('class') || '').indexOf('cur') === -1) {
-                                    allSelected = false;
+                            if (_matchedIndices.length === 0) {
+                                cxai_logger('AI未能匹配任何选项，请手动选择', 'red')
+                            } else {
+                                var allSelected = true;
+                                for (var ci = 0; ci < _matchedIndices.length; ci++) {
+                                    if (($(_answerTmpArr[_matchedIndices[ci]]).attr('class') || '').indexOf('cur') === -1) {
+                                        allSelected = false;
+                                    }
+                                }
+                                if (allSelected) {
+                                    cxai_logger('自动答题成功，准备切换下一题', 'green')
+                                } else {
+                                    cxai_logger('部分选项未能选中，请手动确认', 'orange')
                                 }
                             }
-                            if (allSelected) {
-                                logger('自动答题成功，准备切换下一题', 'green')
-                            } else {
-                                logger('部分选项未能选中，请手动确认', 'orange')
-                            }
-                            setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                            setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         }, _totalWait)
                     }
                 }).catch(() => {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
         }
@@ -2221,18 +2190,18 @@ function startDoPhoneTimu(index, TimuList) {
             // 检查是否使用UEditor编辑器（手机页面）
             if (tkEditorBlocks && tkEditorBlocks.length > 0) {
                 let firstTextarea = $(TimuList[index]).find('textarea[name^="answer"]')
-                if (firstTextarea.length > 0 && $(firstTextarea[0]).val() && $(firstTextarea[0]).val().trim() !== '' && !isRedoMode()) {
-                    logger("此题已作答,跳过", "green");
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30);
+                if (firstTextarea.length > 0 && $(firstTextarea[0]).val() && $(firstTextarea[0]).val().trim() !== '' && !cxai_isRedoMode()) {
+                    cxai_logger("此题已作答,跳过", "green");
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30);
                     break
                 }
 
-                _question = buildPrompt({ type: '填空题', question: _question, answer_format: "多个填空用'|'分隔" })
-                getAnswer(_type, _question).then((agrs) => {
+                _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "多个填空用'|'分隔" })
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
-                        logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
                     let answers = agrs.split('|')
@@ -2265,9 +2234,9 @@ function startDoPhoneTimu(index, TimuList) {
 
                                 if (ueditor) {
                                     ueditor.setContent(answerContent)
-                                    logger(`填空题第${i + 1}空已填入 (Index: ${editorIndex})`, 'green')
+                                    cxai_logger(`填空题第${i + 1}空已填入 (Index: ${editorIndex})`, 'green')
                                 } else {
-                                    logger(`填空题第${i + 1}空未找到编辑器实例 (Index: ${editorIndex}, ItemId: ${itemId})`, 'yellow')
+                                    cxai_logger(`填空题第${i + 1}空未找到编辑器实例 (Index: ${editorIndex}, ItemId: ${itemId})`, 'yellow')
                                 }
 
                                 // 始终尝试更新隐藏的textarea作为兜底
@@ -2284,27 +2253,27 @@ function startDoPhoneTimu(index, TimuList) {
                                     }
                                 }
                             } catch (e) {
-                                logger('填空题填入详情失败：' + e.message, 'red')
+                                cxai_logger('填空题填入详情失败：' + e.message, 'red')
                             }
                         }, 500 * (i + 1))
                     })
 
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time + 300 * editorBlocks.length)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time + 300 * editorBlocks.length)
                 }).catch(() => {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             } else if (tkList && tkList.length > 0) {
                 // 普通input模式（旧版页面）
-                if ($(tkList[0]).val() && $(tkList[0]).val().trim() !== '' && !isRedoMode()) {
-                    logger("此题已作答,跳过", "green");
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30);
+                if ($(tkList[0]).val() && $(tkList[0]).val().trim() !== '' && !cxai_isRedoMode()) {
+                    cxai_logger("此题已作答,跳过", "green");
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30);
                     break
                 }
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
-                        logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
                     let answers = agrs.split('|')
@@ -2316,13 +2285,13 @@ function startDoPhoneTimu(index, TimuList) {
                             $(t).trigger('input').trigger('change')
                         }, 200)
                     })
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                 }).catch(() => {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             } else {
-                logger('未找到填空题输入区域，跳过此题', 'red')
-                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                cxai_logger('未找到填空题输入区域，跳过此题', 'red')
+                setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
             }
             break
         }
@@ -2335,12 +2304,12 @@ function startDoPhoneTimu(index, TimuList) {
             var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if ($(_answerTmpArr[i]).attr('aria-label')) {
-                    if (!isRedoMode()) {
-                        logger(index + 1 + '此题已作答，准备切换下一题', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green')
                         check_answer_flag = 1;
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30)
                     } else {
-                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
+                        if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).click()
@@ -2350,19 +2319,19 @@ function startDoPhoneTimu(index, TimuList) {
                 }
             }
             if (check_answer_flag == 0) {
-                _question = buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
-                getAnswer(_type, _question).then((agrs) => {
+                _question = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
-                    let judgeResult = parseJudgeAnswer(agrs)
+                    let judgeResult = cxai_parseJudgeAnswer(agrs)
                     if (judgeResult === null) {
-                        logger('答案匹配出错，准备切换下一题', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('答案匹配出错，准备切换下一题', 'red')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
-                    let _i = findJudgeOptionIndex(_a, judgeResult === 'true')
+                    let _i = cxai_findJudgeOptionIndex(_a, judgeResult === 'true')
                     if (_i === -1) {
-                        logger('未匹配到正确选项，跳过', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('未匹配到正确选项，跳过', 'red')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
                     setTimeout(() => {
@@ -2371,17 +2340,17 @@ function startDoPhoneTimu(index, TimuList) {
                         } else {
                             $(_answerTmpArr[_i]).click()
                         }
-                        logger('自动答题成功，准备切换下一题', 'green')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('自动答题成功，准备切换下一题', 'green')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }, 300)
                 }).catch(() => {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
             break
         }
         case 4: { // 简答题或材料题
-            _question = buildPrompt({ type: '简答题或材料题', question: _question })
+            _question = cxai_buildPrompt({ type: '简答题或材料题', question: _question })
 
             // 查找可能的编辑器区域（通过data-editorindex）
             let jdEditorBlocks = $(TimuList[index]).find('[data-editorindex]')
@@ -2392,17 +2361,17 @@ function startDoPhoneTimu(index, TimuList) {
 
             // 优先处理UEditor编辑器（手机页面）
             if (jdEditorBlocks && jdEditorBlocks.length > 0) {
-                if (jdTextareas.length > 0 && $(jdTextareas[0]).val() && $(jdTextareas[0]).val().trim() !== '' && !isRedoMode()) {
-                    logger(index + 1 + '简答题已作答，准备切换下一题', 'green')
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
+                if (jdTextareas.length > 0 && $(jdTextareas[0]).val() && $(jdTextareas[0]).val().trim() !== '' && !cxai_isRedoMode()) {
+                    cxai_logger(index + 1 + '简答题已作答，准备切换下一题', 'green')
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30)
                     break
                 }
 
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
-                        logger('AI无法匹配答案，请手动完成', 'red')
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('AI无法匹配答案，请手动完成', 'red')
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
 
@@ -2439,9 +2408,9 @@ function startDoPhoneTimu(index, TimuList) {
 
                                 if (ueditor) {
                                     ueditor.setContent(agrs)
-                                    logger(`简答题已填入 (Index: ${editorIndex})`, 'green')
+                                    cxai_logger(`简答题已填入 (Index: ${editorIndex})`, 'green')
                                 } else {
-                                    logger(`简答题未找到编辑器实例 (Index: ${editorIndex}, ItemId: ${itemId})`, 'yellow')
+                                    cxai_logger(`简答题未找到编辑器实例 (Index: ${editorIndex}, ItemId: ${itemId})`, 'yellow')
                                 }
 
                                 // 兜底：更新隐藏textarea
@@ -2455,11 +2424,11 @@ function startDoPhoneTimu(index, TimuList) {
                                     } catch (e) { /* empty */ }
                                 }
                             } catch (e) {
-                                logger('简答题填入失败：' + e.message, 'red')
+                                cxai_logger('简答题填入失败：' + e.message, 'red')
                                 // 尝试直接设置textarea
                                 if (jdTextareas.length > 0) {
                                     $(jdTextareas[0]).val(agrs)
-                                    logger('简答题通过textarea填入答案', 'blue')
+                                    cxai_logger('简答题通过textarea填入答案', 'blue')
                                 }
                             }
                         }, 500)
@@ -2467,65 +2436,65 @@ function startDoPhoneTimu(index, TimuList) {
                         // Fallback direct textarea
                         if (jdTextareas.length > 0) {
                             $(jdTextareas[0]).val(agrs)
-                            logger('简答题通过textarea填入答案', 'blue')
+                            cxai_logger('简答题通过textarea填入答案', 'blue')
                         }
                     }
 
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                 }).catch(() => {
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
             // 如果没有编辑器，但有textarea，直接使用textarea
             else if (jdTextareas && jdTextareas.length > 0) {
                 // 检查是否已作答
-                if ($(jdTextareas[0]).val() && $(jdTextareas[0]).val().trim() !== '' && !isRedoMode()) {
-                    logger(index + 1 + '简答题已作答，准备切换下一题', 'green')
+                if ($(jdTextareas[0]).val() && $(jdTextareas[0]).val().trim() !== '' && !cxai_isRedoMode()) {
+                    cxai_logger(index + 1 + '简答题已作答，准备切换下一题', 'green')
                     jdIsAnswered = true
-                    setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, 30)
+                    setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, 30)
                 } else {
-                    getAnswer(_type, _question).then((agrs) => {
+                    cxai_getAnswer(_type, _question).then((agrs) => {
                         agrs = String(agrs);
                         if (agrs == '暂无答案') {
-                            logger('AI无法匹配答案，请手动完成', 'red')
+                            cxai_logger('AI无法匹配答案，请手动完成', 'red')
                         } else {
                             $(jdTextareas[0]).val(agrs)
                             $(jdTextareas[0]).trigger('input').trigger('change')
-                            logger('简答题自动答题成功，准备切换下一题', 'green')
+                            cxai_logger('简答题自动答题成功，准备切换下一题', 'green')
                         }
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }).catch(() => {
-                        setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                        setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                     })
                 }
             }
             // 如果以上方法都失败
             else {
-                logger('无法找到简答题输入区域，请手动完成', 'red')
-                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                cxai_logger('无法找到简答题输入区域，请手动完成', 'red')
+                setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
             }
             break
         }
         case 5: {
-            getAnswer(_type, _question).then((agrs) => {
-                // setting.sub = 0
-                logger('此类型题目无法区分单/多选，请手动选择答案', 'red')
-                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : setting.time))
+            cxai_getAnswer(_type, _question).then((agrs) => {
+                // cxaiCfg.sub = 0
+                cxai_logger('此类型题目无法区分单/多选，请手动选择答案', 'red')
+                setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
             }).catch(() => {
-                setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+                setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
             })
             break
         }
         default:
-            logger('暂不支持处理此类型题目：' + questionFull.match(/.*?\[(.*?)]|$/)[1] + '，跳过！请手动作答。', 'red')
-            // setting.sub = 0
-            setTimeout(() => { startDoPhoneTimu(index + 1, TimuList) }, setting.time)
+            cxai_logger('暂不支持处理此类型题目：' + questionFull.match(/.*?\[(.*?)]|$/)[1] + '，跳过！请手动作答。', 'red')
+            // cxaiCfg.sub = 0
+            setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
             break
     }
 }
 
 
-function pollForElement(iframeDom, selector, interval, maxAttempts) {
+function cxai_pollForElement(iframeDom, selector, interval, maxAttempts) {
     interval = interval || 2000;
     maxAttempts = (typeof maxAttempts === 'number' && maxAttempts > 0) ? maxAttempts : 60; // 默认 60 次 ≈ 2 分钟
     return new Promise(function (resolve) {
@@ -2540,11 +2509,11 @@ function pollForElement(iframeDom, selector, interval, maxAttempts) {
             } catch (e) { /* iframe未就绪或跨域 */ }
             attempts++;
             if (attempts >= maxAttempts) {
-                logger('框架等待超时（' + Math.round(attempts * interval / 1000) + 's），上层将重试或跳过', 'red');
+                cxai_logger('框架等待超时（' + Math.round(attempts * interval / 1000) + 's），上层将重试或跳过', 'red');
                 return resolve(null);
             }
             if (attempts % 15 === 0) {
-                logger('框架仍在加载中，已等待' + (attempts * interval / 1000) + '秒...请耐心等待', 'orange');
+                cxai_logger('框架仍在加载中，已等待' + (attempts * interval / 1000) + '秒...请耐心等待', 'orange');
             }
             setTimeout(check, interval);
         };
@@ -2553,7 +2522,7 @@ function pollForElement(iframeDom, selector, interval, maxAttempts) {
 }
 
 
-function setupAntiSleep() {
+function cxai_setupAntiSleep() {
     if (_cxaiAntiSleepStarted) return;
     var AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -2591,108 +2560,108 @@ function setupAntiSleep() {
 }
 
 
-function setupAutoRefresh() {
+function cxai_setupAutoRefresh() {
     var stored = localStorage.getItem('cxaiSetting.autoRefresh');
     var enabled = stored !== null ? (stored === 'true') : false;
     if (!enabled) return;
     var minutes = parseInt(localStorage.getItem('cxaiSetting.autoRefreshMinutes'), 10);
     if (!isFinite(minutes) || minutes < 5) minutes = 30;
     setTimeout(function () {
-        logger('已达到自动刷新时间（' + minutes + '分钟），3 秒后刷新页面...', 'orange');
+        cxai_logger('已达到自动刷新时间（' + minutes + '分钟），3 秒后刷新页面...', 'orange');
         setTimeout(function () { try { window.location.reload(); } catch (_) { /* empty */ } }, 3000);
     }, minutes * 60 * 1000);
 }
 
 
-function startDoPhoneCyWork(index, doms, phoneWeb) {
+function cxai_startDoPhoneCyWork(index, doms, phoneWeb) {
     if (index == doms.length) {
-        logger('此页面全部测验已处理完毕！准备进行下一项任务')
-        setTimeout(missonStart, 5000)
+        cxai_logger('此页面全部测验已处理完毕！准备进行下一项任务')
+        setTimeout(cxai_missonStart, 5000)
         return
     }
-    logger('等待测验框架加载...', 'purple')
-    pollForElement(doms[index], 'iframe').then(element => {
+    cxai_logger('等待测验框架加载...', 'purple')
+    cxai_pollForElement(doms[index], 'iframe').then(element => {
         let workIframe = element
         if (!workIframe) {
-            setTimeout(() => { startDoPhoneCyWork(index, doms, phoneWeb) }, 5000)
+            setTimeout(() => { cxai_startDoPhoneCyWork(index, doms, phoneWeb) }, 5000)
             return
         }
         let workStatus = $(workIframe).contents().find('.newTestCon .newTestTitle .testTit_status').text().trim()
         if (!workStatus) {
             _domList.splice(0, 1)
-            setTimeout(missonStart, 2000)
+            setTimeout(cxai_missonStart, 2000)
             return
         }
-        if (isRedoMode() && workStatus.indexOf("已完成") != -1) {
-            logger('测验：' + (index + 1) + ',重做模式下重新处理已完成测验', 'blue')
+        if (cxai_isRedoMode() && workStatus.indexOf("已完成") != -1) {
+            cxai_logger('测验：' + (index + 1) + ',重做模式下重新处理已完成测验', 'blue')
             $(workIframe).attr('src', phoneWeb)
-            getElement($(doms[index]).contents()[0], 'iframe[src="' + phoneWeb + '"]').then((element) => {
-                setTimeout(() => { doPhoneWork($(element).contents()) }, 3000)
+            cxai_getElement($(doms[index]).contents()[0], 'iframe[src="' + phoneWeb + '"]').then((element) => {
+                setTimeout(() => { cxai_doPhoneWork($(element).contents()) }, 3000)
             })
         } else if (workStatus.indexOf("待做") != -1 || workStatus.indexOf("待完成") != -1 || workStatus.indexOf("重做") != -1 || workStatus.indexOf("未达到") != -1) {
             var isRedoStatus = workStatus.indexOf("重做") != -1 || workStatus.indexOf("未达到") != -1
-            logger('测验：' + (index + 1) + (isRedoStatus ? ',未达到及格线,准备重做...' : ',准备处理此测验...'), 'purple')
+            cxai_logger('测验：' + (index + 1) + (isRedoStatus ? ',未达到及格线,准备重做...' : ',准备处理此测验...'), 'purple')
             $(workIframe).attr('src', phoneWeb)
-            getElement($(doms[index]).contents()[0], 'iframe[src="' + phoneWeb + '"]').then((element) => {
-                setTimeout(() => { doPhoneWork($(element).contents()) }, 3000)
+            cxai_getElement($(doms[index]).contents()[0], 'iframe[src="' + phoneWeb + '"]').then((element) => {
+                setTimeout(() => { cxai_doPhoneWork($(element).contents()) }, 3000)
             })
         } else if (workStatus.indexOf('待批阅') != -1) {
-            _mlist.splice(0, 1)
+            cxai_mlist.splice(0, 1)
             _domList.splice(0, 1)
-            logger('测验：' + (index + 1) + ',测验待批阅,跳过', 'red')
-            setTimeout(() => { startDoPhoneCyWork(index + 1, doms, phoneWeb) }, 5000)
+            cxai_logger('测验：' + (index + 1) + ',测验待批阅,跳过', 'red')
+            setTimeout(() => { cxai_startDoPhoneCyWork(index + 1, doms, phoneWeb) }, 5000)
         } else {
-            _mlist.splice(0, 1)
+            cxai_mlist.splice(0, 1)
             _domList.splice(0, 1)
-            logger('测验：' + (index + 1) + ',未知状态[' + workStatus + '],跳过', 'red')
-            setTimeout(() => { startDoPhoneCyWork(index + 1, doms, phoneWeb) }, 5000)
+            cxai_logger('测验：' + (index + 1) + ',未知状态[' + workStatus + '],跳过', 'red')
+            setTimeout(() => { cxai_startDoPhoneCyWork(index + 1, doms, phoneWeb) }, 5000)
         }
     })
 }
 
 
-function startDoCyWork(index, doms) {
+function cxai_startDoCyWork(index, doms) {
     if (index == doms.length) {
-        logger('此页面全部测验已处理完毕！准备进行下一项任务')
-        setTimeout(missonStart, 5000)
+        cxai_logger('此页面全部测验已处理完毕！准备进行下一项任务')
+        setTimeout(cxai_missonStart, 5000)
         return
     }
-    logger('等待测验框架加载...', 'purple')
-    pollForElement(doms[index], 'iframe').then(element => {
+    cxai_logger('等待测验框架加载...', 'purple')
+    cxai_pollForElement(doms[index], 'iframe').then(element => {
         let workIframe = element
         if (!workIframe) {
-            setTimeout(() => { startDoCyWork(index, doms) }, 5000)
+            setTimeout(() => { cxai_startDoCyWork(index, doms) }, 5000)
             return
         }
         let workStatus = $(workIframe).contents().find(".newTestCon .newTestTitle .testTit_status").text().trim()
         if (!workStatus) {
             _domList.splice(0, 1)
-            setTimeout(missonStart, 2000)
+            setTimeout(cxai_missonStart, 2000)
             return
         }
-        if (isRedoMode() && workStatus.indexOf("已完成") != -1) {
-            logger('测验：' + (index + 1) + ',重做模式下重新处理已完成测验', 'blue')
-            setTimeout(() => { doWork(index, doms, workIframe) }, 5000)
+        if (cxai_isRedoMode() && workStatus.indexOf("已完成") != -1) {
+            cxai_logger('测验：' + (index + 1) + ',重做模式下重新处理已完成测验', 'blue')
+            setTimeout(() => { cxai_doWork(index, doms, workIframe) }, 5000)
         } else if (workStatus.indexOf("待做") != -1 || workStatus.indexOf("待完成") != -1 || workStatus.indexOf("重做") != -1 || workStatus.indexOf("未达到") != -1) {
             var isRedoStatus = workStatus.indexOf("重做") != -1 || workStatus.indexOf("未达到") != -1
-            logger('测验：' + (index + 1) + (isRedoStatus ? ',未达到及格线,准备重做...' : ',准备处理此测验...'), 'purple')
-            setTimeout(() => { doWork(index, doms, workIframe) }, 5000)
+            cxai_logger('测验：' + (index + 1) + (isRedoStatus ? ',未达到及格线,准备重做...' : ',准备处理此测验...'), 'purple')
+            setTimeout(() => { cxai_doWork(index, doms, workIframe) }, 5000)
         } else if (workStatus.indexOf('待批阅') != -1) {
-            _mlist.splice(0, 1)
+            cxai_mlist.splice(0, 1)
             _domList.splice(0, 1)
-            logger('测验：' + (index + 1) + ',测验待批阅,跳过', 'red')
-            setTimeout(() => { startDoCyWork(index + 1, doms) }, 5000)
+            cxai_logger('测验：' + (index + 1) + ',测验待批阅,跳过', 'red')
+            setTimeout(() => { cxai_startDoCyWork(index + 1, doms) }, 5000)
         } else {
-            _mlist.splice(0, 1)
+            cxai_mlist.splice(0, 1)
             _domList.splice(0, 1)
-            logger('测验：' + (index + 1) + ',未知状态[' + workStatus + '],跳过', 'red')
-            setTimeout(() => { startDoCyWork(index + 1, doms) }, 5000)
+            cxai_logger('测验：' + (index + 1) + ',未知状态[' + workStatus + '],跳过', 'red')
+            setTimeout(() => { cxai_startDoCyWork(index + 1, doms) }, 5000)
         }
     })
 }
 
 
-function getElement(parent, selector, timeout = 0) {
+function cxai_getElement(parent, selector, timeout = 0) {
     /**
      * Author   cxxjackie
      * From     https://bbs.tampermonkey.net.cn
@@ -2750,17 +2719,17 @@ function getElement(parent, selector, timeout = 0) {
 }
 
 
-function missonHomeWork() {
-    logger('开始处理作业', 'green')
+function cxai_missonHomeWork() {
+    cxai_logger('开始处理作业', 'green')
     let $_homeworktable = $('.mark_table').find('form')
     let TimuList = $_homeworktable.find('.questionLi')
-    doHomeWork(0, TimuList)
+    cxai_doHomeWork(0, TimuList)
 }
 
 
-function doHomeWork(index, TiMuList) {
+function cxai_doHomeWork(index, TiMuList) {
     if (index == TiMuList.length) {
-        logger('作业题目已全部完成', 'green')
+        cxai_logger('作业题目已全部完成', 'green')
         return
     }
 
@@ -2768,20 +2737,20 @@ function doHomeWork(index, TiMuList) {
     // Helper function for handling normal textareas
     function handleNormalTextarea(textareaList, jdt, index, TiMuList) {
         if (!textareaList || textareaList.length === 0) {
-            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
+            setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
             return;
         }
-        getAnswer(4, jdt).then((agrs) => {
+        cxai_getAnswer(4, jdt).then((agrs) => {
             $.each(textareaList, (i, t) => {
                 let _id = $(t).attr('id') || $(t).attr('name');
                 setTimeout(() => {
                     try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                 }, 300 + i * 200);
             });
-            logger('自动答题成功，准备切换下一题', 'green');
-            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * textareaList.length);
+            cxai_logger('自动答题成功，准备切换下一题', 'green');
+            setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * textareaList.length);
         }).catch(() => {
-            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
+            setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
         });
     }
 
@@ -2796,17 +2765,17 @@ function doHomeWork(index, TiMuList) {
         写作题: 5,
         翻译题: 6
     })[typeName]
-    _currentQuestionMeta = { index: index, total: TiMuList.length, typeName: typeName }
+    cxai_currentQuestionMeta = { index: index, total: TiMuList.length, typeName: typeName }
     let _questionFull = $(TiMuList[index]).find('.mark_name').html()
-    let _question = tidyQuestion(_questionFull).replace(/^[(].*?[)]/, '').trim()
-    _currentQuestionMeta.questionText = _question
+    let _question = cxai_tidyQuestion(_questionFull).replace(/^[(].*?[)]/, '').trim()
+    cxai_currentQuestionMeta.questionText = _question
     let _a = []
     let _answerTmpArr, _textareaList
     var check_answer_flag = 0;
 
     // 如果题型不在预设类型中，根据DOM结构自动识别题型
     if (_type === undefined) {
-        logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
+        cxai_logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
 
         // 检查是否有选择题特征
         _answerTmpArr = $(TiMuList[index]).find('.stem_answer').find('.answer_p')
@@ -2817,9 +2786,9 @@ function doHomeWork(index, TiMuList) {
             let multiChoiceCheck = $(TiMuList[index]).find('.stem_answer input[type="checkbox"]');
             if (multiChoiceCheck && multiChoiceCheck.length > 0) {
                 _type = 1; // 多选题
-                logger('自动识别为多选题', 'green');
+                cxai_logger('自动识别为多选题', 'green');
             } else {
-                logger('自动识别为单选题', 'green');
+                cxai_logger('自动识别为单选题', 'green');
             }
         }
         // 检查是否有文本输入框特征
@@ -2827,7 +2796,7 @@ function doHomeWork(index, TiMuList) {
             _textareaList = $(TiMuList[index]).find('.stem_answer').find('.subEditor textarea, .Answer .divText textarea, .Answer .divText .textDIV textarea, textarea[name^="answerEditor"], .edui-editor textarea');
             if (_textareaList && _textareaList.length > 0) {
                 _type = 4; // 简答题
-                logger('自动识别为简答题', 'green');
+                cxai_logger('自动识别为简答题', 'green');
             }
         }
     }
@@ -2843,19 +2812,19 @@ function doHomeWork(index, TiMuList) {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
+            _question = cxai_buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
             //判断题目是否已作答
             var _redoLogged = false;
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if (($(_answerTmpArr[i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
                     //没有被选择
                 } else {
-                    if (!isRedoMode()) {
-                        logger(index + 1 + '此题已作答，准备切换下一题', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green')
                         check_answer_flag = 1;
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                     } else {
-                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
+                        if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -2866,37 +2835,21 @@ function doHomeWork(index, TiMuList) {
             if (check_answer_flag == 0) {
                 // 先构建选项数组，供后续使用
                 $.each(_answerTmpArr, (i, t) => {
-                    _a.push(tidyStr($(t).html()))
+                    _a.push(cxai_tidyStr($(t).html()))
                 })
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs)
                     if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                        //修改题目将答案插入
                         let timuele = $(TiMuList[index]).find('.mark_name')
-                        // 防止AI回显题目文本
-                        let displayAns = agrs;
-                        if (_currentQuestionMeta && _currentQuestionMeta.questionText) {
-                            var _q = _currentQuestionMeta.questionText.trim();
-                            if (_q.length > 5 && (agrs === _q || agrs.indexOf(_q) === 0)) {
-                                displayAns = '[⚠️ AI回显了题目，已跳过]';
-                            }
-                        }
-                        // 对于数字索引，显示选项内容而不是索引号
-                        if (displayAns === agrs && /^\d+$/.test(agrs) && _a.length > 0) {
-                            let numIdx = parseInt(agrs, 10);
-                            if (numIdx >= 0 && numIdx < _a.length) {
-                                displayAns = _a[numIdx] + ' (选项' + (numIdx + 1) + ')';
-                            }
-                        }
-                        timuele.html(timuele.html() + '<p style="color:green;">📖 ' + displayAns + '</p>')
+                        timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                     }
                     let _i = cxaiMatchByLetter(agrs, _a.length);
                     if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
-                    if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                    if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                     if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                     if (_i == -1) {
-                        logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     } else {
                         setTimeout(() => {
                             let check = $(_answerTmpArr[_i]).parent().find('span').attr('class') || ''
@@ -2907,12 +2860,12 @@ function doHomeWork(index, TiMuList) {
                                     $(_answerTmpArr[_i]).parent().click()
                                 }
                             }
-                            logger('自动答题成功，准备切换下一题', 'green')
-                            setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                            cxai_logger('自动答题成功，准备切换下一题', 'green')
+                            setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         }, 300)
                     }
                 }).catch(() => {
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 })
             }
         }
@@ -2927,19 +2880,19 @@ function doHomeWork(index, TiMuList) {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
+            _question = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
             //判断题目是否已作答
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 if (($(_answerTmpArr[i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
                     //没有被选择
                 } else {
-                    if (!isRedoMode()) {
-                        logger(index + 1 + '此题已作答，准备切换下一题', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green')
                         check_answer_flag = 1;
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                         break
                     } else {
-                        logger(index + 1 + '此题已作答，重做模式下取消旧答案', 'blue')
+                        cxai_logger(index + 1 + '此题已作答，重做模式下取消旧答案', 'blue')
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -2949,14 +2902,12 @@ function doHomeWork(index, TiMuList) {
             }
             if (check_answer_flag == 0) {
                 $.each(_answerTmpArr, (i, t) => {
-                    _a.push(tidyStr($(t).html()))
+                    _a.push(cxai_tidyStr($(t).html()))
                 })
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs)
                     if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                        //修改题目将答案插入
                         let timuele = $(TiMuList[index]).find('.mark_name')
-                        // logger("timuele题目标签:"+timuele.html())
                         timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                     }
                     let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _a.length);
@@ -2978,20 +2929,24 @@ function doHomeWork(index, TiMuList) {
                             function(idx) { return ($(_answerTmpArr[idx]).parent().find('span').attr('class') || '').indexOf('check_answer_dx') !== -1; }
                         );
                     }
-                    logger('自动答题成功，准备切换下一题', 'green')
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + _answerTmpArr.length * 600 + _matchedIndices.length * 600)
+                    if (_matchedIndices.length === 0) {
+                        cxai_logger('AI未能匹配任何选项，请手动选择', 'red')
+                    } else {
+                        cxai_logger('自动答题成功，准备切换下一题', 'green')
+                    }
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + _answerTmpArr.length * 600 + _matchedIndices.length * 600)
                 }).catch(() => {
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 })
             }
         }
             break
         case 2: {
-            _question = buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" });
-            _textareaList = findAnswerTextareas($(TiMuList[index]));
+            _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" });
+            _textareaList = cxai_findAnswerTextareas($(TiMuList[index]));
             if (!_textareaList || _textareaList.length === 0) {
-                logger('未找到填空题输入区域，跳过此题', 'red');
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time));
+                cxai_logger('未找到填空题输入区域，跳过此题', 'red');
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
                 break
             }
             // 判断题目是否已作答（用 try/catch 防止 UE.getEditor 抛错；id 为空则回退 name）
@@ -3000,11 +2955,11 @@ function doHomeWork(index, TiMuList) {
             try {
                 if (_id && UE.getEditor(_id) && UE.getEditor(_id).getContent && UE.getEditor(_id).getContent() !== '') firstAnswered = true;
             } catch (e) { firstAnswered = false; }
-            if (firstAnswered && !isRedoMode()) {
-                logger(index + 1 + '此题已作答，准备切换下一题', 'green');
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30);
+            if (firstAnswered && !cxai_isRedoMode()) {
+                cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green');
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30);
             } else {
-                getAnswer(_type, _question).then((agrs) => {
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     let _answerTmpArr = (agrs || '').split('|');
                     $.each(_textareaList, (i, t) => {
                         let _currentId = $(t).attr('id') || $(t).attr('name');
@@ -3013,10 +2968,10 @@ function doHomeWork(index, TiMuList) {
                             try { UE.getEditor(_currentId).setContent(val) } catch (e) { /* ignore */ }
                         }, 300 + i * 200);
                     });
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _textareaList.length);
-                    logger('自动答题成功，准备切换下一题', 'green');
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _textareaList.length);
+                    cxai_logger('自动答题成功，准备切换下一题', 'green');
                 }).catch(() => {
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
                 });
             }
             break
@@ -3032,12 +2987,12 @@ function doHomeWork(index, TiMuList) {
                 if (($(_answerTmpArr[i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
                     //没有被选择
                 } else {
-                    if (!isRedoMode()) {
-                        logger(index + 1 + '此题已作答，准备切换下一题', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(index + 1 + '此题已作答，准备切换下一题', 'green')
                         check_answer_flag = 1;
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                     } else {
-                        if (!_redoLogged) { logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
+                        if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -3046,23 +3001,23 @@ function doHomeWork(index, TiMuList) {
                 }
             }
             if (check_answer_flag == 0) {
-                _question = buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
-                getAnswer(_type, _question).then((agrs) => {
+                _question = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
+                cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs)
                     if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                         let timuele = $(TiMuList[index]).find('.mark_name')
                         timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                     }
-                    let judgeResult = parseJudgeAnswer(agrs)
+                    let judgeResult = cxai_parseJudgeAnswer(agrs)
                     if (judgeResult === null) {
-                        logger('答案匹配出错，准备切换下一题', 'red')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('答案匹配出错，准备切换下一题', 'red')
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
-                    let _i = findJudgeOptionIndex(_a, judgeResult === 'true')
+                    let _i = cxai_findJudgeOptionIndex(_a, judgeResult === 'true')
                     if (_i === -1) {
-                        logger('未匹配到正确选项，跳过', 'red')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('未匹配到正确选项，跳过', 'red')
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
                     setTimeout(() => {
@@ -3074,20 +3029,20 @@ function doHomeWork(index, TiMuList) {
                                 $(_answerTmpArr[_i]).parent().click()
                             }
                         }
-                        logger('自动答题成功，准备切换下一题', 'green')
-                        setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                        cxai_logger('自动答题成功，准备切换下一题', 'green')
+                        setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }, 300)
                 }).catch(() => {
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 })
             }
             break
         }
         case 4: {
-            let _answerEle = findAnswerTextareas($(TiMuList[index]))
+            let _answerEle = cxai_findAnswerTextareas($(TiMuList[index]))
             if (!_answerEle || _answerEle.length === 0) {
-                logger((index + 1) + ' 未找到文本作答区域，跳过此题', 'red')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time))
+                cxai_logger((index + 1) + ' 未找到文本作答区域，跳过此题', 'red')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 break
             }
             let _isAnswered4 = false
@@ -3095,13 +3050,13 @@ function doHomeWork(index, TiMuList) {
                 let _eid = $(t).attr('id') || $(t).attr('name')
                 try { if (_eid && UE.getEditor(_eid) && UE.getEditor(_eid).getContent && UE.getEditor(_eid).getContent() !== '') _isAnswered4 = true } catch (e) { /* ignore */ }
             })
-            if (_isAnswered4 && !isRedoMode()) {
-                logger((index + 1) + ' 此题已作答，准备切换下一题', 'green')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
+            if (_isAnswered4 && !cxai_isRedoMode()) {
+                cxai_logger((index + 1) + ' 此题已作答，准备切换下一题', 'green')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                 break
             }
-            let jdt = buildPrompt({ type: typeName || '简答题', question: _question, answer_format: "用50字简要回答" })
-            getAnswer(_type, jdt).then((agrs) => {
+            let jdt = cxai_buildPrompt({ type: typeName || '简答题', question: _question, answer_format: "用50字简要回答" })
+            cxai_getAnswer(_type, jdt).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $(TiMuList[index]).find('.mark_name')
@@ -3113,18 +3068,18 @@ function doHomeWork(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200);
                 });
-                logger('自动答题成功，准备切换下一题', 'green')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _answerEle.length);
+                cxai_logger('自动答题成功，准备切换下一题', 'green')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle.length);
             }).catch((err) => {
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
         }
             break
         case 5: {
-            let _answerEle5 = findAnswerTextareas($(TiMuList[index]))
+            let _answerEle5 = cxai_findAnswerTextareas($(TiMuList[index]))
             if (!_answerEle5 || _answerEle5.length === 0) {
-                logger((index + 1) + ' 未找到写作题文本框，跳过此题', 'red')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                cxai_logger((index + 1) + ' 未找到写作题文本框，跳过此题', 'red')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 break
             }
             // 已作答检测
@@ -3133,13 +3088,13 @@ function doHomeWork(index, TiMuList) {
                 let _eid = $(t).attr('id') || $(t).attr('name')
                 try { if (_eid && UE.getEditor(_eid) && UE.getEditor(_eid).getContent && UE.getEditor(_eid).getContent() !== '') _isAnswered5 = true } catch (e) { /* ignore */ }
             })
-            if (_isAnswered5 && !isRedoMode()) {
-                logger((index + 1) + ' 此题已作答，准备切换下一题', 'green')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
+            if (_isAnswered5 && !cxai_isRedoMode()) {
+                cxai_logger((index + 1) + ' 此题已作答，准备切换下一题', 'green')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                 break
             }
-            let jdt5 = buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
-            getAnswer(_type, jdt5).then((agrs) => {
+            let jdt5 = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
+            cxai_getAnswer(_type, jdt5).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $(TiMuList[index]).find('.mark_name')
@@ -3151,18 +3106,18 @@ function doHomeWork(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200);
                 });
-                logger('自动答题成功，准备切换下一题', 'green')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _answerEle5.length);
+                cxai_logger('自动答题成功，准备切换下一题', 'green')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle5.length);
             }).catch((err) => {
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
         }
             break
         case 6: {
-            let _answerEle6 = findAnswerTextareas($(TiMuList[index]))
+            let _answerEle6 = cxai_findAnswerTextareas($(TiMuList[index]))
             if (!_answerEle6 || _answerEle6.length === 0) {
-                logger((index + 1) + ' 未找到翻译题文本框，跳过此题', 'red')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                cxai_logger((index + 1) + ' 未找到翻译题文本框，跳过此题', 'red')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 break
             }
             // 已作答检测
@@ -3171,13 +3126,13 @@ function doHomeWork(index, TiMuList) {
                 let _eid = $(t).attr('id') || $(t).attr('name')
                 try { if (_eid && UE.getEditor(_eid) && UE.getEditor(_eid).getContent && UE.getEditor(_eid).getContent() !== '') _isAnswered6 = true } catch (e) { /* ignore */ }
             })
-            if (_isAnswered6 && !isRedoMode()) {
-                logger((index + 1) + ' 此题已作答，准备切换下一题', 'green')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, 30)
+            if (_isAnswered6 && !cxai_isRedoMode()) {
+                cxai_logger((index + 1) + ' 此题已作答，准备切换下一题', 'green')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                 break
             }
-            let jdt6 = buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
-            getAnswer(_type, jdt6).then((agrs) => {
+            let jdt6 = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
+            cxai_getAnswer(_type, jdt6).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $(TiMuList[index]).find('.mark_name')
@@ -3189,23 +3144,23 @@ function doHomeWork(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200);
                 });
-                logger('自动答题成功，准备切换下一题', 'green')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time + 200 * _answerEle6.length);
+                cxai_logger('自动答题成功，准备切换下一题', 'green')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle6.length);
             }).catch((err) => {
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
         }
             break
         default: {
             if (_type === undefined) {
-                logger('无法识别题型：' + typeName + '，跳过此题', 'red')
-                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time)
+                cxai_logger('无法识别题型：' + typeName + '，跳过此题', 'red')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             } else {
                 // 尝试获取文本输入区域
                 _textareaList = $(TiMuList[index]).find('.stem_answer').find('textarea, .subEditor textarea, .divText textarea, .eidtDiv textarea, .divText .edui-editor, textarea[name^="answerEditor"]');
                 if (_textareaList && _textareaList.length > 0) {
-                    logger('检测到文本输入区域，尝试回答', 'green');
-                    let jdt = buildPrompt({ type: typeName || '未知题型', question: _question, answer_format: "请根据题目作答" })
+                    cxai_logger('检测到文本输入区域，尝试回答', 'green');
+                    let jdt = cxai_buildPrompt({ type: typeName || '未知题型', question: _question, answer_format: "请根据题目作答" })
 
                     // 检查是否有富文本编辑器特有的textarea
                     let editorTextareas = $(TiMuList[index]).find('.stem_answer textarea[name^="answerEditor"]');
@@ -3213,15 +3168,15 @@ function doHomeWork(index, TiMuList) {
                         // 使用富文本编辑器ID
                         let editorId = $(editorTextareas[0]).attr('id');
                         if (editorId) {
-                            getAnswer(_type || 4, jdt).then((agrs) => {
+                            cxai_getAnswer(_type || 4, jdt).then((agrs) => {
                                 setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
-                                logger('使用富文本编辑器ID回答成功，准备切换下一题', 'green');
-                                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : setting.time));
+                                cxai_logger('使用富文本编辑器ID回答成功，准备切换下一题', 'green');
+                                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time));
                             }).catch(() => {
-                                setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
+                                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
                             });
                         } else {
-                            logger('找到富文本编辑器但无法获取ID，改用普通方法', 'yellow');
+                            cxai_logger('找到富文本编辑器但无法获取ID，改用普通方法', 'yellow');
                             // 如果没有ID，退回到常规处理
                             handleNormalTextarea(_textareaList, jdt, index, TiMuList);
                         }
@@ -3232,8 +3187,8 @@ function doHomeWork(index, TiMuList) {
 
 
                 } else {
-                    logger('无法处理此题型：' + typeName + '，跳过此题', 'red');
-                    setTimeout(() => { doHomeWork(index + 1, TiMuList) }, setting.time);
+                    cxai_logger('无法处理此题型：' + typeName + '，跳过此题', 'red');
+                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
                 }
             }
         }
@@ -3241,21 +3196,7 @@ function doHomeWork(index, TiMuList) {
 }
 
 
-// 轮询方式查找iframe内的元素
-// 解决getElement使用MutationObserver在iframe文档替换时失效导致脚本卡死的问题
-// 第四个参数 maxAttempts：最大轮询次数，超时返回 null（上层 if(!el) 会触发自身重试），避免永久卡死
-
-// ── 后台防休眠 & 自动刷新 ──
-// 后台标签页防休眠：用 Web Audio 静音振荡器维持音频上下文，缓解浏览器对隐藏标签页的节流。
-// 浏览器策略要求自动播放需用户手势；首次失败时会挂监听到 click/keydown 上再试一次。
 var _cxaiAntiSleepStarted = false;
-
-// 周期性自动刷新页面，防止脚本因不可恢复的 iframe 卡死/超星接口响应异常而死循环
-// 默认关闭，需用户在 localStorage 写入 cxaiSetting.autoRefresh=true 启用
-// 默认 30 分钟，可通过 cxaiSetting.autoRefreshMinutes 改写（最小 5 分钟）
-
-
-// ── PC端作业 ──
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3263,9 +3204,9 @@ var _cxaiAntiSleepStarted = false;
 //  单题考试、整卷预览、考试跳转
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function missonExam() {
+function cxai_missonExam() {
     let $_examtable = $('.mark_table').find('.whiteDiv')
-    let _questionFull = tidyStr($_examtable.find('h3.mark_name').html().trim())
+    let _questionFull = cxai_tidyStr($_examtable.find('h3.mark_name').html().trim())
     let typeName = _questionFull.match(/[(](.*?),.*?分[)]|$/)[1];
     let _qType = ({
         单选题: 0, 单项选择题: 0, 单选: 0,
@@ -3283,31 +3224,31 @@ function missonExam() {
         let $curLi = $('.mark_table .mark_li_list li.active, .mark_table .mark_li_list li.current')
         if ($curLi.length) _examCurIdx = parseInt($curLi.text().trim()) - 1
     } catch (_) { /* empty */ }
-    _currentQuestionMeta = { index: isFinite(_examCurIdx) ? _examCurIdx : null, total: null, typeName: typeName }
-    let _question = tidyQuestion(_questionFull.replace(/[(].*?分[)]/, '').replace(/^\s*/, ''))
-    _currentQuestionMeta.questionText = _question
+    cxai_currentQuestionMeta = { index: isFinite(_examCurIdx) ? _examCurIdx : null, total: null, typeName: typeName }
+    let _question = cxai_tidyQuestion(_questionFull.replace(/[(].*?分[)]/, '').replace(/^\s*/, ''))
+    cxai_currentQuestionMeta.questionText = _question
     let $_ansdom = $_examtable.find('#submitTest').find('.stem_answer')
     let _answerTmpArr;
     let _a = []
 
     function handleStandardExamTextarea(standardTextareas, _question) {
-        logger('检测到标准文本输入区域，尝试回答', 'green');
-        let jdt = buildPrompt({ type: typeName || '未知题型', question: _question, answer_format: "请根据题目作答" })
-        getAnswer(4, jdt).then((agrs) => {
+        cxai_logger('检测到标准文本输入区域，尝试回答', 'green');
+        let jdt = cxai_buildPrompt({ type: typeName || '未知题型', question: _question, answer_format: "请根据题目作答" })
+        cxai_getAnswer(4, jdt).then((agrs) => {
             $.each(standardTextareas, (i, t) => {
                 let _id = $(t).attr('id')
                 setTimeout(() => { UE.getEditor(_id).setContent(agrs) }, 300)
             })
-            logger('自动答题成功，准备切换下一题', 'green')
-            toNextExam()
+            cxai_logger('自动答题成功，准备切换下一题', 'green')
+            cxai_toNextExam()
         }).catch(() => {
-            toNextExam()
+            cxai_toNextExam()
         })
     }
 
     // 如果题型不在预设类型中，根据DOM结构自动识别题型
     if (_qType === undefined) {
-        logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
+        cxai_logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
 
         // 检查是否有选择题特征
         _answerTmpArr = $_ansdom.find('.clearfix.answerBg .fl.answer_p');
@@ -3318,9 +3259,9 @@ function missonExam() {
             let multiChoiceCheck = $_ansdom.find('.clearfix.answerBg input[type="checkbox"]');
             if (multiChoiceCheck && multiChoiceCheck.length > 0) {
                 _qType = 1; // 多选题
-                logger('自动识别为多选题', 'green');
+                cxai_logger('自动识别为多选题', 'green');
             } else {
-                logger('自动识别为单选题', 'green');
+                cxai_logger('自动识别为单选题', 'green');
             }
         }
         // 检查是否有文本输入框特征
@@ -3328,7 +3269,7 @@ function missonExam() {
             let _textareaList = $_ansdom.find('.Answer .divText .subEditor textarea, .Answer .divText .edui-editor, .Answer .divText textarea, textarea[name^="answerEditor"]');
             if (_textareaList && _textareaList.length > 0) {
                 _qType = 4; // 简答题
-                logger('自动识别为简答题', 'green');
+                cxai_logger('自动识别为简答题', 'green');
             }
         }
     }
@@ -3342,13 +3283,13 @@ function missonExam() {
                 let _cls = $(_answerTmpArr[_ai]).parent().find('span').attr('class') || ''
                 if (_cls.indexOf('check_answer') !== -1) { _answeredIdxE0 = _ai; break }
             }
-            if (_answeredIdxE0 !== -1 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_answeredIdxE0 !== -1 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            if (_answeredIdxE0 !== -1 && isRedoMode()) {
-                logger('此题已作答，重做模式下重新作答', 'blue')
+            if (_answeredIdxE0 !== -1 && cxai_isRedoMode()) {
+                cxai_logger('此题已作答，重做模式下重新作答', 'blue')
                 if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                     $(_answerTmpArr[_answeredIdxE0]).parent().click()
                 }
@@ -3360,26 +3301,24 @@ function missonExam() {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
+            _question = cxai_buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
             $.each(_answerTmpArr, (i, t) => {
-                _a.push(tidyStr($(t).html()))
+                _a.push(cxai_tidyStr($(t).html()))
             })
-            getAnswer(_qType, _question).then((agrs) => {
+            cxai_getAnswer(_qType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $_examtable.find('h3.mark_name')
-                    // logger(timuele.html())
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
 
                 let _i = cxaiMatchByLetter(agrs, _a.length);
                 if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
-                if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                 if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i == -1) {
-                    logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
-                    setTimeout(toNextExam, 5000)
+                    cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
+                    setTimeout(cxai_toNextExam, 5000)
                 } else {
                     setTimeout(() => {
                         if (($(_answerTmpArr[_i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
@@ -3389,16 +3328,16 @@ function missonExam() {
                             } else {
                                 setTimeout(() => { $(_answerTmpArr[_i]).parent().click() }, 300)
                             }
-                            logger('自动答题成功，准备切换下一题', 'green')
-                            toNextExam()
+                            cxai_logger('自动答题成功，准备切换下一题', 'green')
+                            cxai_toNextExam()
                         } else {
-                            logger('此题已作答，准备切换下一题', 'green')
-                            toNextExam()
+                            cxai_logger('此题已作答，准备切换下一题', 'green')
+                            cxai_toNextExam()
                         }
                     }, 300)
                 }
             }).catch(() => {
-                toNextExam()
+                cxai_toNextExam()
             })
         }
             break
@@ -3406,13 +3345,13 @@ function missonExam() {
             _answerTmpArr = $_ansdom.find('.clearfix.answerBg .fl.answer_p')
             // 已作答前置检查（多选用 check_answer_dx）
             let _alreadyAnsweredE1 = $_ansdom.find('.clearfix.answerBg span.check_answer_dx, .clearfix.answerBg span.check_answer').length > 0
-            if (_alreadyAnsweredE1 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_alreadyAnsweredE1 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            if (_alreadyAnsweredE1 && isRedoMode()) {
-                logger('此题已作答，重做模式下重新作答', 'blue')
+            if (_alreadyAnsweredE1 && cxai_isRedoMode()) {
+                cxai_logger('此题已作答，重做模式下重新作答', 'blue')
                 if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                     $.each(_answerTmpArr, function (_i2, _t2) {
                         var _cls2 = $(_t2).parent().find('span').attr('class') || ''
@@ -3429,16 +3368,14 @@ function missonExam() {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
+            _question = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
             $.each(_answerTmpArr, (i, t) => {
-                _a.push(tidyStr($(t).html()))
+                _a.push(cxai_tidyStr($(t).html()))
             })
-            getAnswer(_qType, _question).then((agrs) => {
+            cxai_getAnswer(_qType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $_examtable.find('h3.mark_name')
-                    // logger(timuele.html())
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
 
@@ -3462,11 +3399,15 @@ function missonExam() {
                             function(idx) { return ($(_answerTmpArr[idx]).parent().find('span').attr('class') || '').indexOf('check_answer_dx') !== -1; }
                         );
                     }
-                    logger('自动答题成功，准备切换下一题', 'green')
-                    toNextExam()
+                    if (_matchedIndices.length === 0) {
+                        cxai_logger('AI未能匹配任何选项，请手动选择', 'red')
+                    } else {
+                        cxai_logger('自动答题成功，准备切换下一题', 'green')
+                    }
+                    cxai_toNextExam()
                 }
             }).catch(() => {
-                toNextExam()
+                cxai_toNextExam()
             })
         }
             break
@@ -3482,30 +3423,30 @@ function missonExam() {
                     }
                 } catch (_e) { /* ignore */ }
             })
-            if (_alreadyAnsweredE2 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_alreadyAnsweredE2 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            if (_alreadyAnsweredE2 && isRedoMode()) {
-                logger('此题已作答，重做模式下重新作答', 'blue')
+            if (_alreadyAnsweredE2 && cxai_isRedoMode()) {
+                cxai_logger('此题已作答，重做模式下重新作答', 'blue')
                 $.each(_textareaList, function (_i2, _t2) {
                     let _eid = $(_t2).attr('id')
                     try { if (_eid && UE.getEditor(_eid)) UE.getEditor(_eid).setContent('') } catch (_e) { /* ignore */ }
                 })
             }
-            _question = buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" });
-            // logger(_textareaList)
-            getAnswer(_qType, _question).then((agrs) => {
+            _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" });
+            // cxai_logger(_textareaList)
+            cxai_getAnswer(_qType, _question).then((agrs) => {
                 let _answerTmpArr = agrs.split('|')
                 $.each(_textareaList, (i, t) => {
                     let _id = $(t).attr('id')
                     setTimeout(() => { UE.getEditor(_id).setContent(_answerTmpArr[i]) }, 300)
                 })
-                logger('自动答题成功，准备切换下一题', 'green')
-                toNextExam()
+                cxai_logger('自动答题成功，准备切换下一题', 'green')
+                cxai_toNextExam()
             }).catch(() => {
-                toNextExam()
+                cxai_toNextExam()
             })
             break
         }
@@ -3517,39 +3458,38 @@ function missonExam() {
                 let _cls = $(_answerTmpArr[_ai]).parent().find('span').attr('class') || ''
                 if (_cls.indexOf('check_answer') !== -1) { _answeredIdxE3 = _ai; break }
             }
-            if (_answeredIdxE3 !== -1 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_answeredIdxE3 !== -1 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            if (_answeredIdxE3 !== -1 && isRedoMode()) {
-                logger('此题已作答，重做模式下重新作答', 'blue')
+            if (_answeredIdxE3 !== -1 && cxai_isRedoMode()) {
+                cxai_logger('此题已作答，重做模式下重新作答', 'blue')
                 if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                     $(_answerTmpArr[_answeredIdxE3]).parent().click()
                 }
             }
-            _question = buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" });
+            _question = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" });
             $.each(_answerTmpArr, (i, t) => {
                 _a.push($(t).text().trim())
             })
-            getAnswer(_qType, _question).then((agrs) => {
+            cxai_getAnswer(_qType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $_examtable.find('h3.mark_name')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
 
-                let judgeResult = parseJudgeAnswer(agrs)
+                let judgeResult = cxai_parseJudgeAnswer(agrs)
                 if (judgeResult === null) {
-                    logger('答案匹配出错，准备切换下一题', 'red')
-                    toNextExam()
+                    cxai_logger('答案匹配出错，准备切换下一题', 'red')
+                    cxai_toNextExam()
                     return
                 }
-                let _i = findJudgeOptionIndex(_a, judgeResult === 'true')
+                let _i = cxai_findJudgeOptionIndex(_a, judgeResult === 'true')
                 if (_i === -1) {
-                    logger('未匹配到正确选项，跳过', 'red')
-                    toNextExam()
+                    cxai_logger('未匹配到正确选项，跳过', 'red')
+                    cxai_toNextExam()
                     return
                 }
                 if (($(_answerTmpArr[_i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
@@ -3559,33 +3499,33 @@ function missonExam() {
                     } else {
                         $(_answerTmpArr[_i]).parent().click()
                     }
-                    logger('自动答题成功，准备切换下一题', 'green')
-                    toNextExam()
+                    cxai_logger('自动答题成功，准备切换下一题', 'green')
+                    cxai_toNextExam()
                 } else {
-                    logger('此题已作答，准备切换下一题', 'green')
-                    toNextExam()
+                    cxai_logger('此题已作答，准备切换下一题', 'green')
+                    cxai_toNextExam()
                 }
             }).catch(() => {
-                toNextExam()
+                cxai_toNextExam()
             })
             break
         }
         case 4: {
-            let _answerEle = findAnswerTextareas($_ansdom)
-            if (!_answerEle || _answerEle.length === 0) { toNextExam(); break }
+            let _answerEle = cxai_findAnswerTextareas($_ansdom)
+            if (!_answerEle || _answerEle.length === 0) { cxai_toNextExam(); break }
             // 已作答检测
             let _isAnsweredE4 = false
             $.each(_answerEle, function (i, t) {
                 let _eid = $(t).attr('id') || $(t).attr('name')
                 try { if (_eid && UE.getEditor(_eid) && UE.getEditor(_eid).getContent && UE.getEditor(_eid).getContent() !== '') _isAnsweredE4 = true } catch (e) { /* ignore */ }
             })
-            if (_isAnsweredE4 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_isAnsweredE4 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            let jdt = buildPrompt({ type: typeName || '简答题', question: _question, answer_format: "用50字简要回答" })
-            getAnswer(_qType, jdt).then((agrs) => {
+            let jdt = cxai_buildPrompt({ type: typeName || '简答题', question: _question, answer_format: "用50字简要回答" })
+            cxai_getAnswer(_qType, jdt).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $_examtable.find('h3.mark_name')
@@ -3597,26 +3537,26 @@ function missonExam() {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200);
                 });
-                setTimeout(toNextExam, 300 + 200 * _answerEle.length);
-            }).catch(() => { toNextExam(); });
+                setTimeout(cxai_toNextExam, 300 + 200 * _answerEle.length);
+            }).catch(() => { cxai_toNextExam(); });
         }
             break
         case 5: {
-            let _answerEle = findAnswerTextareas($_ansdom)
-            if (!_answerEle || _answerEle.length === 0) { toNextExam(); break }
+            let _answerEle = cxai_findAnswerTextareas($_ansdom)
+            if (!_answerEle || _answerEle.length === 0) { cxai_toNextExam(); break }
             // 已作答检测
             let _isAnsweredE5 = false
             $.each(_answerEle, function (i, t) {
                 let _eid = $(t).attr('id') || $(t).attr('name')
                 try { if (_eid && UE.getEditor(_eid) && UE.getEditor(_eid).getContent && UE.getEditor(_eid).getContent() !== '') _isAnsweredE5 = true } catch (e) { /* ignore */ }
             })
-            if (_isAnsweredE5 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_isAnsweredE5 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            let jdt = buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
-            getAnswer(_qType, jdt).then((agrs) => {
+            let jdt = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
+            cxai_getAnswer(_qType, jdt).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $_examtable.find('h3.mark_name')
@@ -3628,26 +3568,26 @@ function missonExam() {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200);
                 });
-                setTimeout(toNextExam, 300 + 200 * _answerEle.length);
-            }).catch(() => { toNextExam(); });
+                setTimeout(cxai_toNextExam, 300 + 200 * _answerEle.length);
+            }).catch(() => { cxai_toNextExam(); });
         }
             break
         case 6: {
-            let _answerEle = findAnswerTextareas($_ansdom)
-            if (!_answerEle || _answerEle.length === 0) { toNextExam(); break }
+            let _answerEle = cxai_findAnswerTextareas($_ansdom)
+            if (!_answerEle || _answerEle.length === 0) { cxai_toNextExam(); break }
             // 已作答检测
             let _isAnsweredE6 = false
             $.each(_answerEle, function (i, t) {
                 let _eid = $(t).attr('id') || $(t).attr('name')
                 try { if (_eid && UE.getEditor(_eid) && UE.getEditor(_eid).getContent && UE.getEditor(_eid).getContent() !== '') _isAnsweredE6 = true } catch (e) { /* ignore */ }
             })
-            if (_isAnsweredE6 && !isRedoMode()) {
-                logger('此题已作答，准备切换下一题', 'green')
-                toNextExam()
+            if (_isAnsweredE6 && !cxai_isRedoMode()) {
+                cxai_logger('此题已作答，准备切换下一题', 'green')
+                cxai_toNextExam()
                 break
             }
-            let jdt = buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
-            getAnswer(_qType, jdt).then((agrs) => {
+            let jdt = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
+            cxai_getAnswer(_qType, jdt).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $_examtable.find('h3.mark_name')
@@ -3659,14 +3599,14 @@ function missonExam() {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200);
                 });
-                setTimeout(toNextExam, 300 + 200 * _answerEle.length);
-            }).catch(() => { toNextExam(); });
+                setTimeout(cxai_toNextExam, 300 + 200 * _answerEle.length);
+            }).catch(() => { cxai_toNextExam(); });
         }
             break
         default: {
             if (_qType === undefined) {
-                logger('无法识别题型：' + typeName + '，跳过此题', 'red')
-                toNextExam()
+                cxai_logger('无法识别题型：' + typeName + '，跳过此题', 'red')
+                cxai_toNextExam()
             } else {
                 // 尝试获取文本输入区域
                 // 查找所有可能的文本输入区域
@@ -3677,19 +3617,19 @@ function missonExam() {
                 let editorTextareas = $_ansdom.find('textarea[name^="answerEditor"]');
 
                 if (editorTextareas && editorTextareas.length > 0) {
-                    logger('检测到材料题富文本编辑器，尝试回答', 'green');
+                    cxai_logger('检测到材料题富文本编辑器，尝试回答', 'green');
                     let editorId = $(editorTextareas[0]).attr('id');
                     if (editorId) {
-                        let jdt = buildPrompt({ type: '材料题', question: _question, answer_format: "请根据材料详细回答" })
-                        getAnswer(4, jdt).then((agrs) => {
+                        let jdt = cxai_buildPrompt({ type: '材料题', question: _question, answer_format: "请根据材料详细回答" })
+                        cxai_getAnswer(4, jdt).then((agrs) => {
                             setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
-                            logger('材料题自动答题成功，准备切换下一题', 'green');
-                            toNextExam();
+                            cxai_logger('材料题自动答题成功，准备切换下一题', 'green');
+                            cxai_toNextExam();
                         }).catch(() => {
-                            toNextExam();
+                            cxai_toNextExam();
                         });
                     } else {
-                        logger('找到材料题编辑器但无法获取ID，尝试其他方法', 'yellow');
+                        cxai_logger('找到材料题编辑器但无法获取ID，尝试其他方法', 'yellow');
                         handleStandardExamTextarea(standardTextareas, _question);
                     }
                 }
@@ -3699,7 +3639,7 @@ function missonExam() {
                 }
                 // 处理其他类型的富文本编辑器
                 else if (richEditors && richEditors.length > 0) {
-                    logger('检测到富文本编辑器，尝试查找编辑器ID', 'green');
+                    cxai_logger('检测到富文本编辑器，尝试查找编辑器ID', 'green');
 
                     // 尝试在页面中查找所有可能的编辑器ID
                     let editorScripts = $('script:contains("UE.getEditor")');
@@ -3711,27 +3651,27 @@ function missonExam() {
                         let matches = scriptContent.match(/UE\.getEditor\(['"](.*?)['"]/);
                         if (matches && matches.length > 1) {
                             editorIdMatch = matches[1];
-                            logger('从脚本中发现编辑器ID: ' + editorIdMatch, 'green');
+                            cxai_logger('从脚本中发现编辑器ID: ' + editorIdMatch, 'green');
                         }
                     }
 
                     if (editorIdMatch) {
-                        let jdt = buildPrompt({ type: '材料题', question: _question, answer_format: "请根据材料详细回答" })
-                        getAnswer(4, jdt).then((agrs) => {
+                        let jdt = cxai_buildPrompt({ type: '材料题', question: _question, answer_format: "请根据材料详细回答" })
+                        cxai_getAnswer(4, jdt).then((agrs) => {
                             setTimeout(() => { UE.getEditor(editorIdMatch).setContent(agrs) }, 300);
-                            logger('使用脚本找到的编辑器ID回答成功，准备切换下一题', 'green');
-                            toNextExam();
+                            cxai_logger('使用脚本找到的编辑器ID回答成功，准备切换下一题', 'green');
+                            cxai_toNextExam();
                         }).catch(() => {
-                            toNextExam();
+                            cxai_toNextExam();
                         });
                     } else {
-                        logger('无法找到有效的编辑器ID，跳过此题', 'red');
-                        toNextExam();
+                        cxai_logger('无法找到有效的编辑器ID，跳过此题', 'red');
+                        cxai_toNextExam();
                     }
                 }
                 else {
-                    logger('无法处理此题型：' + typeName + '，跳过此题', 'red');
-                    toNextExam();
+                    cxai_logger('无法处理此题型：' + typeName + '，跳过此题', 'red');
+                    cxai_toNextExam();
                 }
 
 
@@ -3741,38 +3681,38 @@ function missonExam() {
 }
 
 
-function toNextExam() {
+function cxai_toNextExam() {
     if (localStorage.getItem('cxaiSetting.examTurn') === 'true') {
         let $_examtable = $('.mark_table').find('.whiteDiv')
         let $nextbtn = $_examtable.find('.nextDiv a.jb_btn')
         setTimeout(() => {
             $nextbtn.click()
-        }, setting.examTurnTime ? 2000 + (Math.floor(Math.random() * 5 + 1) * 1000) : 2000)
+        }, cxaiCfg.examTurnTime ? 2000 + (Math.floor(Math.random() * 5 + 1) * 1000) : 2000)
     } else {
-        logger('用户设置不自动跳转下一题，请手动点击', 'blue')
+        cxai_logger('用户设置不自动跳转下一题，请手动点击', 'blue')
     }
 }
 
 
-function missonExamPreview() {
-    logger('进入整卷预览页面，开始处理考试', 'green')
+function cxai_missonExamPreview() {
+    cxai_logger('进入整卷预览页面，开始处理考试', 'green')
     let TiMuList = $('.mark_table').find('.questionLi')
     if (!TiMuList || TiMuList.length === 0) {
-        logger('未解析到题目，请确认页面已渲染', 'red')
+        cxai_logger('未解析到题目，请确认页面已渲染', 'red')
         return
     }
-    logger('共解析到 ' + TiMuList.length + ' 道题', 'blue')
-    doExamPreview(0, TiMuList)
+    cxai_logger('共解析到 ' + TiMuList.length + ' 道题', 'blue')
+    cxai_doExamPreview(0, TiMuList)
 }
 
 
-function getExamPreviewDelay() {
-    let base = (setting && setting.time) ? setting.time : 2500
+function cxai_getExamPreviewDelay() {
+    let base = (cxaiCfg && cxaiCfg.time) ? cxaiCfg.time : 2500
     return base + Math.floor(Math.random() * 1500)
 }
 
 
-function getExamPreviewType($timu) {
+function cxai_getExamPreviewType($timu) {
     let typeMap = {
         单选题: 0, 单项选择题: 0, 单选: 0,
         多选题: 1, 多项选择题: 1, 多选: 1,
@@ -3815,33 +3755,33 @@ function getExamPreviewType($timu) {
 }
 
 
-function doExamPreview(index, TiMuList) {
+function cxai_doExamPreview(index, TiMuList) {
     if (index >= TiMuList.length) {
-        logger('整卷预览答题已完成，请人工核对后手动交卷', 'green')
+        cxai_logger('整卷预览答题已完成，请人工核对后手动交卷', 'green')
         return
     }
     let $timu = $(TiMuList[index])
-    let typeInfo = getExamPreviewType($timu)
+    let typeInfo = cxai_getExamPreviewType($timu)
     let _type = typeInfo.type
     let typeName = typeInfo.typeName
     let _questionFull = $timu.find('.mark_name').html() || ''
-    let _question = tidyQuestion(_questionFull).replace(/^[(].*?[)]/, '').trim()
+    let _question = cxai_tidyQuestion(_questionFull).replace(/^[(].*?[)]/, '').trim()
     let _a = []
     let _answerTmpArr, _textareaList
     let alreadyAnswered = 0
     let prefix = '第' + (index + 1) + '题: '
 
     function nextSoon() {
-        setTimeout(function () { doExamPreview(index + 1, TiMuList) }, getExamPreviewDelay())
+        setTimeout(function () { cxai_doExamPreview(index + 1, TiMuList) }, cxai_getExamPreviewDelay())
     }
     function nextFast() {
-        setTimeout(function () { doExamPreview(index + 1, TiMuList) }, 30)
+        setTimeout(function () { cxai_doExamPreview(index + 1, TiMuList) }, 30)
     }
 
-    _currentQuestionMeta = { index: index, total: TiMuList.length, typeName: typeName, questionText: _question }
+    cxai_currentQuestionMeta = { index: index, total: TiMuList.length, typeName: typeName, questionText: _question }
 
     if (_type === undefined) {
-        logger(prefix + '无法识别题型(' + typeName + ')，跳过此题', 'red')
+        cxai_logger(prefix + '无法识别题型(' + typeName + ')，跳过此题', 'red')
         return nextSoon()
     }
 
@@ -3849,22 +3789,22 @@ function doExamPreview(index, TiMuList) {
         case 0: {
             _answerTmpArr = $timu.find('.answerBg .answer_p')
             if (!_answerTmpArr || _answerTmpArr.length === 0) {
-                logger(prefix + '未找到选项，跳过', 'red')
+                cxai_logger(prefix + '未找到选项，跳过', 'red')
                 return nextSoon()
             }
             let mergedAnswers = []
             _answerTmpArr.each(function () {
                 mergedAnswers.push($(this).text().replace(/^[A-Z]\s*/, '').trim())
             })
-            let prompt = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers })
+            let prompt = cxai_buildPrompt({ type: '单选题', question: _question, options: mergedAnswers })
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 let cls = $(_answerTmpArr[i]).parent().find('span').attr('class') || ''
                 if (cls.indexOf('check_answer') !== -1) {
-                    if (!isRedoMode()) {
-                        logger(prefix + '已作答，跳过', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(prefix + '已作答，跳过', 'green')
                         alreadyAnswered = 1
                     } else {
-                        logger(prefix + '已作答，重做模式下重新作答', 'blue')
+                        cxai_logger(prefix + '已作答，重做模式下重新作答', 'blue')
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -3873,8 +3813,8 @@ function doExamPreview(index, TiMuList) {
                 }
             }
             if (alreadyAnswered) return nextFast()
-            $.each(_answerTmpArr, function (i, t) { _a.push(tidyStr($(t).html())) })
-            getAnswer(_type, prompt).then(function (agrs) {
+            $.each(_answerTmpArr, function (i, t) { _a.push(cxai_tidyStr($(t).html())) })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $timu.find('.mark_name')
@@ -3882,10 +3822,10 @@ function doExamPreview(index, TiMuList) {
                 }
                 let _i = cxaiMatchByLetter(agrs, _a.length);
                 if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
-                if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                 if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i === -1) {
-                    logger(prefix + 'AI无法完美匹配正确答案，请手动选择', 'red')
+                    cxai_logger(prefix + 'AI无法完美匹配正确答案，请手动选择', 'red')
                     return nextSoon()
                 }
                 setTimeout(function () {
@@ -3897,7 +3837,7 @@ function doExamPreview(index, TiMuList) {
                             $(_answerTmpArr[_i]).parent().click()
                         }
                     }
-                    logger(prefix + '自动答题成功', 'green')
+                    cxai_logger(prefix + '自动答题成功', 'green')
                     nextSoon()
                 }, 300)
             }).catch(function () { nextSoon() })
@@ -3906,23 +3846,23 @@ function doExamPreview(index, TiMuList) {
         case 1: {
             _answerTmpArr = $timu.find('.answerBg .answer_p')
             if (!_answerTmpArr || _answerTmpArr.length === 0) {
-                logger(prefix + '未找到选项，跳过', 'red')
+                cxai_logger(prefix + '未找到选项，跳过', 'red')
                 return nextSoon()
             }
             let mergedAnswers = []
             _answerTmpArr.each(function () {
                 mergedAnswers.push($(this).text().replace(/^[A-Z]\s*/, '').trim())
             })
-            let prompt = buildPrompt({ type: '多选题', question: _question, options: mergedAnswers, answer_format: "用'|'分割多个答案" })
+            let prompt = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers, answer_format: "用'|'分割多个答案" })
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 let cls = $(_answerTmpArr[i]).parent().find('span').attr('class') || ''
                 if (cls.indexOf('check_answer') !== -1) {
-                    if (!isRedoMode()) {
-                        logger(prefix + '已作答，跳过', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(prefix + '已作答，跳过', 'green')
                         alreadyAnswered = 1
                         break
                     } else {
-                        logger(prefix + '已作答，重做模式下取消旧答案', 'blue')
+                        cxai_logger(prefix + '已作答，重做模式下取消旧答案', 'blue')
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -3930,8 +3870,8 @@ function doExamPreview(index, TiMuList) {
                 }
             }
             if (alreadyAnswered) return nextFast()
-            $.each(_answerTmpArr, function (i, t) { _a.push(tidyStr($(t).html())) })
-            getAnswer(_type, prompt).then(function (agrs) {
+            $.each(_answerTmpArr, function (i, t) { _a.push(cxai_tidyStr($(t).html())) })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $timu.find('.mark_name')
@@ -3956,7 +3896,11 @@ function doExamPreview(index, TiMuList) {
                         function(idx) { return ($(_answerTmpArr[idx]).parent().find('span').attr('class') || '').indexOf('check_answer_dx') !== -1; }
                     );
                 }
-                logger(prefix + '自动答题成功', 'green')
+                if (_matchedIndices.length === 0) {
+                    cxai_logger(prefix + 'AI未能匹配任何选项，请手动选择', 'red')
+                } else {
+                    cxai_logger(prefix + '自动答题成功', 'green')
+                }
                 nextSoon()
             }).catch(function () { nextSoon() })
             return
@@ -3967,7 +3911,7 @@ function doExamPreview(index, TiMuList) {
                 _textareaList = $timu.find('.subEditor textarea')
             }
             if (!_textareaList || _textareaList.length === 0) {
-                logger(prefix + '未找到填空文本框，跳过', 'red')
+                cxai_logger(prefix + '未找到填空文本框，跳过', 'red')
                 return nextSoon()
             }
             let isAnswered = false
@@ -3979,12 +3923,12 @@ function doExamPreview(index, TiMuList) {
                     }
                 } catch (e) { /* ignore */ }
             })
-            if (isAnswered && !isRedoMode()) {
-                logger(prefix + '已作答，跳过', 'green')
+            if (isAnswered && !cxai_isRedoMode()) {
+                cxai_logger(prefix + '已作答，跳过', 'green')
                 return nextFast()
             }
-            let prompt = buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" })
-            getAnswer(_type, prompt).then(function (agrs) {
+            let prompt = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 let parts = (agrs || '').split('|')
                 $.each(_textareaList, function (i, t) {
@@ -3994,7 +3938,7 @@ function doExamPreview(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(val) } catch (e) { /* ignore */ }
                     }, 300 + i * 200)
                 })
-                logger(prefix + '自动答题成功', 'green')
+                cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
             }).catch(function () { nextSoon() })
             return
@@ -4002,18 +3946,18 @@ function doExamPreview(index, TiMuList) {
         case 3: {
             _answerTmpArr = $timu.find('.answerBg .answer_p')
             if (!_answerTmpArr || _answerTmpArr.length === 0) {
-                logger(prefix + '未找到判断选项，跳过', 'red')
+                cxai_logger(prefix + '未找到判断选项，跳过', 'red')
                 return nextSoon()
             }
             $.each(_answerTmpArr, function (i, t) { _a.push($(t).text().trim()) })
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 let cls = $(_answerTmpArr[i]).parent().find('span').attr('class') || ''
                 if (cls.indexOf('check_answer') !== -1) {
-                    if (!isRedoMode()) {
-                        logger(prefix + '已作答，跳过', 'green')
+                    if (!cxai_isRedoMode()) {
+                        cxai_logger(prefix + '已作答，跳过', 'green')
                         alreadyAnswered = 1
                     } else {
-                        logger(prefix + '已作答，重做模式下重新作答', 'blue')
+                        cxai_logger(prefix + '已作答，重做模式下重新作答', 'blue')
                         if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
                             $(_answerTmpArr[i]).parent().click()
                         }
@@ -4022,17 +3966,17 @@ function doExamPreview(index, TiMuList) {
                 }
             }
             if (alreadyAnswered) return nextFast()
-            let prompt = buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
-            getAnswer(_type, prompt).then(function (agrs) {
+            let prompt = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
                     let timuele = $timu.find('.mark_name')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
-                let judgeResult = parseJudgeAnswer(agrs)
-                let _i = judgeResult !== null ? findJudgeOptionIndex(_a, judgeResult === 'true') : -1
+                let judgeResult = cxai_parseJudgeAnswer(agrs)
+                let _i = judgeResult !== null ? cxai_findJudgeOptionIndex(_a, judgeResult === 'true') : -1
                 if (_i === -1) {
-                    logger(prefix + '答案匹配出错，跳过', 'red')
+                    cxai_logger(prefix + '答案匹配出错，跳过', 'red')
                     return nextSoon()
                 }
                 setTimeout(function () {
@@ -4044,16 +3988,16 @@ function doExamPreview(index, TiMuList) {
                             $(_answerTmpArr[_i]).parent().click()
                         }
                     }
-                    logger(prefix + '自动答题成功', 'green')
+                    cxai_logger(prefix + '自动答题成功', 'green')
                     nextSoon()
                 }, 300)
             }).catch(function () { nextSoon() })
             return
         }
         case 4: {
-            let _answerEle = findAnswerTextareas($timu)
+            let _answerEle = cxai_findAnswerTextareas($timu)
             if (!_answerEle || _answerEle.length === 0) {
-                logger(prefix + '未找到答题文本框，跳过', 'red')
+                cxai_logger(prefix + '未找到答题文本框，跳过', 'red')
                 return nextSoon()
             }
             let isAnswered = false
@@ -4065,12 +4009,12 @@ function doExamPreview(index, TiMuList) {
                     }
                 } catch (e) { /* ignore */ }
             })
-            if (isAnswered && !isRedoMode()) {
-                logger(prefix + '已作答，跳过', 'green')
+            if (isAnswered && !cxai_isRedoMode()) {
+                cxai_logger(prefix + '已作答，跳过', 'green')
                 return nextFast()
             }
-            let prompt = buildPrompt({ type: typeName || '简答题', question: _question, answer_format: "用50字简要回答" })
-            getAnswer(_type, prompt).then(function (agrs) {
+            let prompt = cxai_buildPrompt({ type: typeName || '简答题', question: _question, answer_format: "用50字简要回答" })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 $.each(_answerEle, function (i, t) {
                     let _id = $(t).attr('id') || $(t).attr('name')
@@ -4078,15 +4022,15 @@ function doExamPreview(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200)
                 })
-                logger(prefix + '自动答题成功', 'green')
+                cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
             }).catch(function () { nextSoon() })
             return
         }
         case 5: {
-            let _answerEle = findAnswerTextareas($timu)
+            let _answerEle = cxai_findAnswerTextareas($timu)
             if (!_answerEle || _answerEle.length === 0) {
-                logger(prefix + '未找到答题文本框，跳过', 'red')
+                cxai_logger(prefix + '未找到答题文本框，跳过', 'red')
                 return nextSoon()
             }
             // 已作答检测
@@ -4099,12 +4043,12 @@ function doExamPreview(index, TiMuList) {
                     }
                 } catch (e) { /* ignore */ }
             })
-            if (isAnswered5 && !isRedoMode()) {
-                logger(prefix + '已作答，跳过', 'green')
+            if (isAnswered5 && !cxai_isRedoMode()) {
+                cxai_logger(prefix + '已作答，跳过', 'green')
                 return nextFast()
             }
-            let prompt = buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
-            getAnswer(_type, prompt).then(function (agrs) {
+            let prompt = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 $.each(_answerEle, function (i, t) {
                     let _id = $(t).attr('id') || $(t).attr('name')
@@ -4112,15 +4056,15 @@ function doExamPreview(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200)
                 })
-                logger(prefix + '自动答题成功', 'green')
+                cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
             }).catch(function () { nextSoon() })
             return
         }
         case 6: {
-            let _answerEle = findAnswerTextareas($timu)
+            let _answerEle = cxai_findAnswerTextareas($timu)
             if (!_answerEle || _answerEle.length === 0) {
-                logger(prefix + '未找到答题文本框，跳过', 'red')
+                cxai_logger(prefix + '未找到答题文本框，跳过', 'red')
                 return nextSoon()
             }
             // 已作答检测
@@ -4133,12 +4077,12 @@ function doExamPreview(index, TiMuList) {
                     }
                 } catch (e) { /* ignore */ }
             })
-            if (isAnswered6 && !isRedoMode()) {
-                logger(prefix + '已作答，跳过', 'green')
+            if (isAnswered6 && !cxai_isRedoMode()) {
+                cxai_logger(prefix + '已作答，跳过', 'green')
                 return nextFast()
             }
-            let prompt = buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
-            getAnswer(_type, prompt).then(function (agrs) {
+            let prompt = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
+            cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 $.each(_answerEle, function (i, t) {
                     let _id = $(t).attr('id') || $(t).attr('name')
@@ -4146,33 +4090,18 @@ function doExamPreview(index, TiMuList) {
                         try { UE.getEditor(_id).setContent(agrs) } catch (e) { /* ignore */ }
                     }, 300 + i * 200)
                 })
-                logger(prefix + '自动答题成功', 'green')
+                cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
             }).catch(function () { nextSoon() })
             return
         }
         default: {
-            logger(prefix + '无法处理此题型: ' + typeName + '，跳过', 'red')
+            cxai_logger(prefix + '无法处理此题型: ' + typeName + '，跳过', 'red')
             nextSoon()
         }
     }
 }
 
-
-// ── 整卷预览页面（一页多题）自动答题 ──
-// 适配 /mooc-ans/mooc2/exam/preview 与 /ans/mooc2/exam/preview
-// 不自动跳转、不自动交卷；叠加随机抖动
-
-// ── 整卷预览辅助 ──
-// 题间间隔：基础 setting.time + 0~1500ms 抖动，模仿真人节奏
-
-// 解析 questionLi 题型：返回 { type: 0~6 | undefined, typeName: string }
-
-
-// ── 课程列表刷新 ──
-
-var _cxaiThinkingCount = 0;
-// ── 思考中指示器 ──
 
 // 构造结构化提示词，使 AI 能更精确地理解题目并回答。
 // 入参 opts:
@@ -4185,10 +4114,10 @@ var _cxaiThinkingCount = 0;
 //   - display: 用于用户日志展示的简洁文本(仅含题干与选项,不含题型/答案格式等元信息)
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 11. AI 答题引擎
-//  Prompt 构建、题库查询、第三方 API、答案质量判断、getAnswer 主入口
+//  Prompt 构建、题库查询、第三方 API、答案质量判断、cxai_getAnswer 主入口
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function buildPrompt(opts) {
+function cxai_buildPrompt(opts) {
     opts = opts || {}
     let q = opts.question != null ? String(opts.question) : ''
     let payloadObj = {}
@@ -4204,7 +4133,6 @@ function buildPrompt(opts) {
     }
     return { payload: payload, display: display }
 }
-
 
 
 
@@ -4300,6 +4228,25 @@ function cxaiIsGarbageAnswer(s) {
     if (/^(有正确答案|正确答案|暂无答案|暂无|见解析|见答案|见详解|答案略|参考答案|详见解析|请查看解析)$/i.test(str)) return true;
     // 精确匹配（必须完全等于这些才算垃圾，避免误杀含"略"、"无"的正常答案）
     if (/^(略|无|不确定|不知道|不清楚|未填写|待补充|略略略?|错误的?|正确的?|不对|不正确|以上都[是对]|以上都[不没错]|都不是|都是)$/i.test(str)) return true;
+    // ★ AI 返回描述性文本而非答案（如 "一个正确的描述"、"直接解决"、"以这可能是正确的"）
+    if (/^(一个|这个|那个|某种|任何|所有|每个|某个).{0,6}(描述|说法|选项|答案|结论|解释|分析|表述|值)$/i.test(str)) return true;
+    if (/^(直接|间接|简单|复杂|快速|高效)(解决|处理|回答|作答|解答)$/i.test(str)) return true;
+    if (/^(以|这|那|该|此).{0,4}(可能|应该|必定|肯定|或许|也许).{0,4}(正确|错误|对|错)/i.test(str)) return true;
+    if (/^某个值$/.test(str)) return true;
+    // ★ AI 返回空谈/废话（长度较短的无效回答）
+    if (/^(有子网|有.*的IP|以网络|以接收|关于.*选项|选项是[A-D]|以下是|这是一个|根据题意|首先|我们需要|让我|题目要求)/i.test(str) && str.length < 60) return true;
+    // ★ AI 返回推理/分析文本而非答案（含"题目描述"、"需要基于"、"无法直接"等推理关键词）
+    if (/题目描述|无法直接|需要基于|基于常见|来推理|工作原理|但我|我需要|我无法|无法查看/.test(str) && str.length > 15) return true;
+    // ★ AI 返回题目片段（如 "太网的介质访问控制" — 从题目截取的碎片）
+    if (cxai_currentQuestionMeta && cxai_currentQuestionMeta.questionText) {
+        var _qCheck = cxai_currentQuestionMeta.questionText.trim();
+        // 如果答案是题目中连续出现的子串（长度>=4），且不是选项文本，判为垃圾
+        if (_qCheck.length > 8 && str.length >= 4 && str.length <= 30 && _qCheck.indexOf(str) !== -1) {
+            // 排除：答案恰好是某个选项文本的情况
+            console.log('[CXAI] 检测到答案是题目片段: "' + str + '"');
+            return true;
+        }
+    }
     // 纯标点/符号（如 "："、"。"、"、" 等不是有效答案）
     if (/^[：:。、，,；;！!？?…·\-—]+$/.test(str)) return true;
     // AI 回显 prompt 指令片段（如 "有正确答案，并用"|"分隔每个选项的完整文本"）
@@ -4309,8 +4256,8 @@ function cxaiIsGarbageAnswer(s) {
     // 过短且不含有效内容（2个字符以内，且不是有意义的单字答案）
     if (str.length <= 2 && !/^[\u4e00-\u9fa5a-zA-Z0-9]+$/.test(str)) return true;
     // ★ 题目回显检测：AI返回了题目文本的片段而非答案
-    if (_currentQuestionMeta && _currentQuestionMeta.questionText) {
-        var _qText = _currentQuestionMeta.questionText.trim();
+    if (cxai_currentQuestionMeta && cxai_currentQuestionMeta.questionText) {
+        var _qText = cxai_currentQuestionMeta.questionText.trim();
         // 检查答案是否与题目有大量重叠（包含题目中连续15字以上的片段）
         if (_qText.length > 15 && str.length > 10) {
             for (var qi = 0; qi <= _qText.length - 15; qi++) {
@@ -4358,19 +4305,19 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
     answerList = answerList.filter(function(a) {
         if (cxaiIsGarbageAnswer(a)) {
             console.log('[CXAI题库] 过滤垃圾答案: "' + String(a) + '"');
-            return true;
+            return false; // 移除垃圾答案
         }
         // ★ 多选题答案不是合法的字母格式（应为 "A,B,C" 或 "ABC" 等）
         var _aStr = String(a);
-        if (_currentQuestionMeta && (_currentQuestionMeta.typeName === '多选题' || _currentQuestionMeta.typeName === '多项选择题') && _aStr.length > 2) {
+        if (cxai_currentQuestionMeta && (cxai_currentQuestionMeta.typeName === '多选题' || cxai_currentQuestionMeta.typeName === '多项选择题') && _aStr.length > 2) {
             // 合法格式: 纯字母如 "AB"、"A,B,C"、"A、B、D"、数字索引如 "0|2|3"
             var _isLegalMulti = /^[A-Ga-g\s,，、|;；]+$/.test(_aStr) || /^\d[\d\s|,;，、和]+$/.test(_aStr) || /^\d+$/.test(_aStr);
             if (!_isLegalMulti) {
                 console.log('[CXAI] 多选题答案格式不合法，判为垃圾: "' + _aStr.slice(0, 40) + '"');
-                return true;
+                return false; // 移除不合法格式
             }
         }
-        return false;
+        return true; // 保留有效答案
     });
     if (answerList.length === 0) { console.log('[CXAI题库] 过滤后答案列表为空'); return null; }
 
@@ -4415,7 +4362,7 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
         }
         // 模糊匹配 fallback
         if (!found && ans.length >= 2 && optionsArr) {
-            var bestIdx = findBestFuzzyMatch(optionsArr, ans);
+            var bestIdx = cxai_findBestFuzzyMatch(optionsArr, ans);
             if (bestIdx !== -1) targetIndices.push(bestIdx);
         }
     }
@@ -4438,12 +4385,12 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
 }
 
 
-function getAnswer(_t, _q, retryCount = 0) {
+function cxai_getAnswer(_t, _q, retryCount = 0) {
     // 搜题总开关：关闭时静默跳过
     if (localStorage.getItem('cxaiSetting.searchEnabled') === 'false') {
         return Promise.reject({ 'c': 0, _instant: true });
     }
-    // 兼容: _q 既可为字符串(旧调用),也可为 buildPrompt() 返回的 { payload, display } 对象
+    // 兼容: _q 既可为字符串(旧调用),也可为 cxai_buildPrompt() 返回的 { payload, display } 对象
     let _payload, _display
     if (_q && typeof _q === 'object' && (_q.payload != null || _q.display != null)) {
         _payload = _q.payload != null ? String(_q.payload) : ''
@@ -4453,37 +4400,37 @@ function getAnswer(_t, _q, retryCount = 0) {
         _display = _payload
     }
     let _qPrefix = ''
-    if (_currentQuestionMeta) {
-        var _m = _currentQuestionMeta
+    if (cxai_currentQuestionMeta) {
+        var _m = cxai_currentQuestionMeta
         _qPrefix = '第' + ((_m.index != null ? _m.index : -1) + 1)
         if (_m.total) _qPrefix += '/' + _m.total
         _qPrefix += '题 [' + (_m.typeName || '未知') + '] '
     }
-    logger(_qPrefix + '题目:' + _display, 'pink')
+    cxai_logger(_qPrefix + '题目:' + _display, 'pink')
     // 在日志中插入一条 "AI 思考中..." 占位行, 拿到响应后原地替换为答案/错误, 避免独立提示框反复出现/消失
     let _thinkingHtml = '<span class="cxai-log-spinner"></span>AI 思考中<span class="cxai-log-dots"><i></i><i></i><i></i></span>' + (retryCount > 0 ? '（第' + (retryCount + 1) + '次）' : '')
-    let $thinkingLog = logger(_thinkingHtml, 'gray')
+    let $thinkingLog = cxai_logger(_thinkingHtml, 'gray')
     return new Promise((resolve, reject) => {
-        let _u = getCk('_uid') || getCk('UID')
+        let _u = cxai_getCk('_uid') || cxai_getCk('UID')
         let requestCompleted = false;  // 标记请求是否已完成
         let longWaitTimer = null;  // 长时间等待定时器
 
-        // 同步搜题间隔到答题间隔：让 setting.time 与 UI 设置的 reqIntervalTime 保持一致
+        // 同步搜题间隔到答题间隔：让 cxaiCfg.time 与 UI 设置的 reqIntervalTime 保持一致
         var _syncedSec = parseInt(localStorage.getItem('cxaiSetting.reqIntervalTime'), 10);
         if (isFinite(_syncedSec) && _syncedSec >= 0) {
-            setting.time = Math.min(60000, _syncedSec * 1000);
+            cxaiCfg.time = Math.min(60000, _syncedSec * 1000);
         }
 
         // 按用户设置的搜题间隔节流：计算本次需要等待的 ms，并预订下一次可发起时间
         let _intervalSec = parseInt(localStorage.getItem('cxaiSetting.reqIntervalTime'), 10)
-        if (!isFinite(_intervalSec) || _intervalSec < 0) _intervalSec = (setting && setting.reqIntervalTime) || 0
+        if (!isFinite(_intervalSec) || _intervalSec < 0) _intervalSec = (cxaiCfg && cxaiCfg.reqIntervalTime) || 0
         let _intervalMs = Math.min(60000, _intervalSec * 1000)
         let _nowTs = Date.now()
         let _waitMs = Math.max(0, _cxaiNextAiAllowedAt - _nowTs)
         // 预订下一次最早可发起时刻：当前/解锁时间 + 间隔
         _cxaiNextAiAllowedAt = Math.max(_nowTs, _cxaiNextAiAllowedAt) + _intervalMs
         if (_waitMs > 0) {
-            updateLogEntry($thinkingLog, '搜题间隔限制，等待 ' + Math.round(_waitMs / 1000) + 's 后发起请求...', 'gray')
+            cxai_updateLogEntry($thinkingLog, '搜题间隔限制，等待 ' + Math.round(_waitMs / 1000) + 's 后发起请求...', 'gray')
         }
 
         // 设置5分钟的监控定时器（覆盖 throttle 等待时间）
@@ -4492,13 +4439,13 @@ function getAnswer(_t, _q, retryCount = 0) {
                 requestCompleted = true;  // 标记为已完成，避免处理旧响应
                 if (retryCount >= 3) {
                     // 最多重试3次，避免网络不可用时无限循环
-                    updateLogEntry($thinkingLog, '请求超过5分钟未响应，已重试' + (retryCount + 1) + '次仍失败，跳过此题', 'red')
+                    cxai_updateLogEntry($thinkingLog, '请求超过5分钟未响应，已重试' + (retryCount + 1) + '次仍失败，跳过此题', 'red')
                     reject({ 'c': 0 })
                 } else {
                     // 原地把 "AI 思考中" 行替换为重试提示, 不再追加新日志
-                    updateLogEntry($thinkingLog, '请求超过5分钟未响应，正在重新发起请求...（第' + (retryCount + 1) + '次重试）', 'orange')
+                    cxai_updateLogEntry($thinkingLog, '请求超过5分钟未响应，正在重新发起请求...（第' + (retryCount + 1) + '次重试）', 'orange')
                     // 重新发起请求(递归调用会创建新的 "思考中" 行)
-                    getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject)
+                    cxai_getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject)
                 }
             }
         }, 300000 + _waitMs);  // 5分钟 = 300000毫秒
@@ -4509,7 +4456,7 @@ function getAnswer(_t, _q, retryCount = 0) {
         // 请求实际发起前，若节流等待行还在显示，更新为"思考中"
         if (_waitMs > 0) {
             let _resumeHtml = '<span class="cxai-log-spinner"></span>AI 思考中<span class="cxai-log-dots"><i></i><i></i><i></i></span>' + (retryCount > 0 ? '（第' + (retryCount + 1) + '次）' : '')
-            updateLogEntry($thinkingLog, _resumeHtml, 'gray')
+            cxai_updateLogEntry($thinkingLog, _resumeHtml, 'gray')
         }
 
         // 读取 Provider 配置
@@ -4518,9 +4465,9 @@ function getAnswer(_t, _q, retryCount = 0) {
 
         // 检查是否有任何答案来源（题库 或 AI Provider/代理）
         var _hasQuestionBank = localStorage.getItem('cxaiSetting.thirdPartyApi') === 'true';
-        var _hasAI = !!(_useProvider || (setting.apiHost || _host));
+        var _hasAI = !!(_useProvider || (cxaiCfg.apiHost || cxai_host));
         if (!_hasQuestionBank && !_hasAI) {
-            updateLogEntry($thinkingLog, '请先在设置中配置 API Key、代理地址 或 题库', 'red')
+            cxai_updateLogEntry($thinkingLog, '请先在设置中配置 API Key、代理地址 或 题库', 'red')
             reject({ 'c': 0 })
             return
         }
@@ -4536,8 +4483,8 @@ function getAnswer(_t, _q, retryCount = 0) {
             var _ans = isFromBank ? answer.trim() : answer.replace(/[。.]$/, '').replace(/^[A-Z]\s*\n\s*/, '').trim();
 
             // ★ 题目回显检测（增强版）：如果答案与题目有大量文本重叠，说明AI在复述题目
-            if (!isFromBank && _currentQuestionMeta && _currentQuestionMeta.questionText) {
-                var _qFull = _currentQuestionMeta.questionText.trim();
+            if (!isFromBank && cxai_currentQuestionMeta && cxai_currentQuestionMeta.questionText) {
+                var _qFull = cxai_currentQuestionMeta.questionText.trim();
                 if (_qFull.length > 10 && _ans.length > 10) {
                     // 计算答案与题目的重叠字符数
                     var _overlapCount = 0;
@@ -4563,6 +4510,14 @@ function getAnswer(_t, _q, retryCount = 0) {
                 if (_stripped.length > 0 && _stripped.length < _ans.length) {
                     console.log('[CXAI] 剥离答案前缀: "' + _ans.slice(0, 30) + '..." → "' + _stripped.slice(0, 30) + '..."');
                     _ans = _stripped;
+                }
+            }
+
+            // ★ 检测AI推理/无法回答的情况（如 "图片无法直接查看"、"需要基于...来推理"）
+            if (!isFromBank && _ans.length > 15) {
+                if (/图片.*无法|无法.*查看|无法.*识别|需要.*推理|基于.*推理|但我.*无法|我无法.*确定/.test(_ans)) {
+                    console.log('[CXAI] 检测到AI无法回答(图片/推理): "' + _ans.slice(0, 50) + '..."');
+                    _ans = ''; // 清空，触发垃圾检测
                 }
             }
 
@@ -4658,23 +4613,23 @@ function getAnswer(_t, _q, retryCount = 0) {
                 console.log('[CXAI] 拦截垃圾答案(' + (isFromBank ? '题库' : 'AI') + '): "' + _ans + '"');
                 if (isFromBank) {
                     // 题库返回垃圾：不标记完成，让 AI 接管
-                    updateLogEntry($thinkingLog, '题库返回无意义答案，尝试AI...', 'orange');
+                    cxai_updateLogEntry($thinkingLog, '题库返回无意义答案，尝试AI...', 'orange');
                     reject({ 'c': 0 });
                 } else {
                     // AI 返回垃圾：重试一次，而非直接放弃
                     if (retryCount < 1) {
-                        updateLogEntry($thinkingLog, 'AI返回无意义答案，自动重试中...', 'orange');
-                        // 不标记完成，让 getAnswer 递归重试
+                        cxai_updateLogEntry($thinkingLog, 'AI返回无意义答案，自动重试中...', 'orange');
+                        // 不标记完成，让 cxai_getAnswer 递归重试
                         requestCompleted = true; // 先标记当前请求完成
                         clearTimeout(longWaitTimer);
                         setTimeout(function () {
-                            getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject);
+                            cxai_getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject);
                         }, 1500);
                     } else {
                         // 重试仍失败，放弃
                         requestCompleted = true;
                         clearTimeout(longWaitTimer);
-                        updateLogEntry($thinkingLog, 'AI返回无意义答案: "' + _ans + '"，重试仍失败，跳过此题', 'red');
+                        cxai_updateLogEntry($thinkingLog, 'AI返回无意义答案: "' + _ans + '"，重试仍失败，跳过此题', 'red');
                         reject({ 'c': 0 });
                     }
                 }
@@ -4692,14 +4647,14 @@ function getAnswer(_t, _q, retryCount = 0) {
                     displayAns = _qOptions[numIdx] + ' (选项' + (numIdx + 1) + ')';
                 }
             }
-            updateLogEntry($thinkingLog, '答案:' + displayAns, 'purple')
+            cxai_updateLogEntry($thinkingLog, '答案:' + displayAns, 'purple')
             resolve(_ans)
         }
         function _handleError(msg, code) {
             if (requestCompleted) return;
             requestCompleted = true;
             clearTimeout(longWaitTimer);
-            updateLogEntry($thinkingLog, msg, 'red')
+            cxai_updateLogEntry($thinkingLog, msg, 'red')
             if (code !== 403 && code !== 500) localStorage.setItem('cxaiSetting.sub', false)
             reject({ 'c': code || 0 })
         }
@@ -4745,7 +4700,7 @@ function getAnswer(_t, _q, retryCount = 0) {
             _doRequest(_url, _headers, _body, _provider.format);
         } else {
             // === 代理回退 ===
-            var _proxyUrl = (setting.apiHost || _host) + '/api/v1/cx?v=' + GM_info['script']['version'];
+            var _proxyUrl = (cxaiCfg.apiHost || cxai_host) + '/api/v1/cx?v=' + GM_info['script']['version'];
             var _proxyHeaders = { 'Content-type': 'application/x-www-form-urlencoded', 'Authorization': '' };
             var _proxyBody = 'question=' + encodeURIComponent(_payload) + '&u=' + _u + '&model=' + _cfg.model;
             _doRequest(_proxyUrl, _proxyHeaders, _proxyBody, 'proxy');
@@ -4859,7 +4814,7 @@ function getAnswer(_t, _q, retryCount = 0) {
 
                 }
 
-                logger('题库命中: ' + _qText.slice(0, 30), 'green');
+                cxai_logger('题库命中: ' + _qText.slice(0, 30), 'green');
 
                 _handleResponse(String(processed), true);
 
@@ -4885,74 +4840,57 @@ function getAnswer(_t, _q, retryCount = 0) {
 }
 
 
-// ========== 题库查询==========
-
-// type 为数字：0=单选, 1=多选, 2=填空, 3=判断, 4=主观...
-// ── 题库查询 ──
-
-// 第三方题库查询 (lyck6.cn)
-// 策略：始终优先走免费接口；仅当免费接口返回"负载过高"且 Token 有效时，才用付费接口重试
-// ── 第三方题库 API ──
-
-// 垃圾答案检测：题库/AI 返回的无意义文本
-
-// 处理题库返回的答案数组，按题型匹配选项索引
-// 返回: 单选→索引号, 多选→索引数组, 填空/主观→答案字符串, 判断→索引, 未匹配→null
-
-// ── getAnswer 主入口 ──
-
-
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 12. 工具函数
 //  任务切换、字符串清洗、字体解密、粘贴绕过
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function doWork(index, doms, dom) {
+function cxai_doWork(index, doms, dom) {
     $frame_c = $(dom).contents();
     let $CyHtml = $frame_c.find('.CeYan')
     let TiMuList = $CyHtml.find('.TiMu')
     $subBtn = $frame_c.find(".ZY_sub").find(".btnSubmit");
     $saveBtn = $frame_c.find(".ZY_sub").find(".btnSave");
-    startDoWork(index, doms, 0, TiMuList)
+    cxai_startDoWork(index, doms, 0, TiMuList)
 }
 
 
-function startDoWork(index, doms, c, TiMuList) {
+function cxai_startDoWork(index, doms, c, TiMuList) {
     if (c == TiMuList.length) {
         if (localStorage.getItem('cxaiSetting.sub') === 'true') {
-            logger('测验处理完成，准备自动提交。', 'green')
+            cxai_logger('测验处理完成，准备自动提交。', 'green')
             setTimeout(() => {
                 $subBtn.click()
                 setTimeout(() => {
                     $frame_c.find('#confirmSubWin > div > div > a.bluebtn').click()
-                    logger('提交成功，准备切换下一个任务。', 'green')
-                    _mlist.splice(0, 1)
+                    cxai_logger('提交成功，准备切换下一个任务。', 'green')
+                    cxai_mlist.splice(0, 1)
                     _domList.splice(0, 1)
-                    setTimeout(() => { startDoCyWork(index + 1, doms) }, 3000)
+                    setTimeout(() => { cxai_startDoCyWork(index + 1, doms) }, 3000)
                 }, 3000)
             }, 5000)
         } else if (localStorage.getItem('cxaiSetting.force') === 'true') {
-            logger('测验处理完成，存在无答案题目,由于用户设置了强制提交，准备自动提交。', 'red')
+            cxai_logger('测验处理完成，存在无答案题目,由于用户设置了强制提交，准备自动提交。', 'red')
             setTimeout(() => {
                 $subBtn.click()
                 setTimeout(() => {
                     $frame_c.find('#confirmSubWin > div > div > a.bluebtn').click()
-                    logger('提交成功，准备切换下一个任务。', 'green')
-                    _mlist.splice(0, 1)
+                    cxai_logger('提交成功，准备切换下一个任务。', 'green')
+                    cxai_mlist.splice(0, 1)
                     _domList.splice(0, 1)
-                    setTimeout(() => { startDoCyWork(index + 1, doms) }, 3000)
+                    setTimeout(() => { cxai_startDoCyWork(index + 1, doms) }, 3000)
                 }, 3000)
             }, 5000)
         } else {
-            logger('测验处理完成，存在无答案题目或者用户设置不提交。', 'red')
+            cxai_logger('测验处理完成，存在无答案题目或者用户设置不提交。', 'red')
         }
         return
     }
     let questionFull = $(TiMuList[c]).find('.Zy_TItle.clearfix > div').html() || ''
-    questionFull = tidyQuestion(questionFull).replace("/<span.*?>.*?</span>/", "");
-    let _question = tidyQuestion(questionFull)
+    questionFull = cxai_tidyQuestion(questionFull).replace(/<span.*?>.*?<\/span>/g, "");
+    let _question = cxai_tidyQuestion(questionFull)
     let _questionImages = cxaiExtractImages(questionFull)
-    if (_questionImages.length > 0) { logger('检测到题目包含 ' + _questionImages.length + ' 张图片', 'blue') }
+    if (_questionImages.length > 0) { cxai_logger('检测到题目包含 ' + _questionImages.length + ' 张图片', 'blue') }
     let typeName = (questionFull.match(/^【(.*?)】/) || [])[1] || (questionFull.match(/(单选题|多选题|填空题|判断题|简答题|论述题)/) || [])[1] || '未知';
     let _TimuType = {
         单选题: 0, 单项选择题: 0, 单选: 0,
@@ -4960,15 +4898,17 @@ function startDoWork(index, doms, c, TiMuList) {
         填空题: 2, 填空: 2,
         判断题: 3, 是非题: 3, 判断: 3,
         简答题: 4, 简答: 4, 问答题: 4, 名词解释: 4, 论述题: 4, 论述: 4,
-        计算题: 4, 计算: 4, 分录题: 4, 资料题: 4, 作图题: 4, 其他: 4, 其它: 4, 阅读理解: 4, 阅读: 4, 阅读题: 4, 理解题: 4, 完形填空: 4, 完形: 4, 综合题: 4
+        计算题: 4, 计算: 4, 分录题: 4, 资料题: 4, 作图题: 4, 其他: 4, 其它: 4, 阅读理解: 4, 阅读: 4, 阅读题: 4, 理解题: 4, 完形填空: 4, 完形: 4, 综合题: 4,
+        写作题: 5,
+        翻译题: 6
     }[typeName]
-    _currentQuestionMeta = { index: c, total: TiMuList.length, typeName: typeName, questionText: _question }
+    cxai_currentQuestionMeta = { index: c, total: TiMuList.length, typeName: typeName, questionText: _question }
     let _a = []
     let _answerTmpArr
 
     // 如果题型不在预设类型中，根据DOM结构自动识别题型
     if (_TimuType === undefined) {
-        logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
+        cxai_logger('未知题型: ' + typeName + '，尝试自动识别', 'blue');
 
         // 检查是否有选择题特征
         let choiceList = $(TiMuList[c]).find('.Zy_ulTop li');
@@ -4978,13 +4918,13 @@ function startDoWork(index, doms, c, TiMuList) {
                 ($(choiceList[0]).text().includes('对') || $(choiceList[0]).text().includes('√')) &&
                 ($(choiceList[1]).text().includes('错') || $(choiceList[1]).text().includes('×'))) {
                 _TimuType = 3; // 判断题
-                logger('自动识别为判断题', 'green');
+                cxai_logger('自动识别为判断题', 'green');
             }
             // 检查是否为选择题
             else {
                 // 默认为单选题，后续可根据页面特征判断是否为多选题
                 _TimuType = 0;
-                logger('自动识别为单选题', 'green');
+                cxai_logger('自动识别为单选题', 'green');
             }
         }
         // 检查是否有填空题特征
@@ -4992,17 +4932,17 @@ function startDoWork(index, doms, c, TiMuList) {
             let fillBlankList = $(TiMuList[c]).find('.Zy_ulTk .XztiHover1');
             if (fillBlankList && fillBlankList.length > 0) {
                 _TimuType = 2; // 填空题
-                logger('自动识别为填空题', 'green');
+                cxai_logger('自动识别为填空题', 'green');
             } else {
                 // 检查是否有富文本编辑器
                 let editorList = $(TiMuList[c]).find('.edui-editor');
                 if (editorList && editorList.length > 0) {
                     _TimuType = 4; // 简答题
-                    logger('检测到富文本编辑器，识别为简答题', 'green');
+                    cxai_logger('检测到富文本编辑器，识别为简答题', 'green');
                 } else {
                     // 默认当作简答题处理
                     _TimuType = 4;
-                    logger('无法准确判断题型，按简答题处理', 'blue');
+                    cxai_logger('无法准确判断题型，按简答题处理', 'blue');
                 }
             }
         }
@@ -5018,38 +4958,22 @@ function startDoWork(index, doms, c, TiMuList) {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
+            _question = cxai_buildPrompt({ type: '单选题', question: _question, options: mergedAnswers.split('|') })
             $.each(_answerTmpArr, (i, t) => {
-                _a.push(tidyStr($(t).html()))
+                _a.push(cxai_tidyStr($(t).html()))
             })
-            getAnswer(_TimuType, _question).then((agrs) => {
+            cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $(TiMuList[c]).find('.Zy_TItle.clearfix > div')
-                    // 防止AI回显题目文本
-                    let displayAns = agrs;
-                    if (_currentQuestionMeta && _currentQuestionMeta.questionText) {
-                        var _q = _currentQuestionMeta.questionText.trim();
-                        if (_q.length > 5 && (agrs === _q || agrs.indexOf(_q) === 0)) {
-                            displayAns = '[⚠️ AI回显了题目，已跳过]';
-                        }
-                    }
-                    // 对于数字索引，显示选项内容而不是索引号
-                    if (displayAns === agrs && /^\d+$/.test(agrs) && _a.length > 0) {
-                        let numIdx = parseInt(agrs, 10);
-                        if (numIdx >= 0 && numIdx < _a.length) {
-                            displayAns = _a[numIdx] + ' (选项' + (numIdx + 1) + ')';
-                        }
-                    }
-                    timuele.html(timuele.html() + '<p style="color:green;">📖 ' + displayAns + '</p>')
+                    timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
                 let _i = cxaiMatchByLetter(agrs, _a.length);
                 if (_i === -1) { _i = _a.findIndex(function(item) { return item === agrs; }); }
-                if (_i === -1) { _i = findBestFuzzyMatch(_a, agrs, undefined, true); }
+                if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                 if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i == -1) {
-                    logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
+                    cxai_logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
                 } else {
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
                         $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
@@ -5057,9 +4981,9 @@ function startDoWork(index, doms, c, TiMuList) {
                         $(_answerTmpArr[_i]).parent().click();
                     }
                 }
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
         }
@@ -5072,28 +4996,16 @@ function startDoWork(index, doms, c, TiMuList) {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
-            getAnswer(_TimuType, _question).then((agrs) => {
+            _question = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
+            cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $(TiMuList[c]).find('.Zy_TItle.clearfix > div')
-                    // 对于数字索引，显示选项内容而不是索引号
-                    let displayAns = agrs;
-                    let _multiOpts = [];
-                    _answerTmpArr.each(function() { _multiOpts.push(tidyStr($(this).html())); });
-                    if (/^\d+(\|\d+)*$/.test(agrs) && _multiOpts.length > 0) {
-                        let indices = agrs.split('|').map(function(s) { return parseInt(s, 10); });
-                        let parts = indices.map(function(idx) {
-                            return (idx >= 0 && idx < _multiOpts.length) ? _multiOpts[idx] : String(idx);
-                        });
-                        displayAns = parts.join(' | ');
-                    }
-                    timuele.html(timuele.html() + '<p style="color:green;">📖 ' + displayAns + '</p>')
+                    timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
                 let _multiOptions = []
                 $.each(_answerTmpArr, (i, t) => {
-                    _multiOptions.push(tidyStr($(t).html()))
+                    _multiOptions.push(cxai_tidyStr($(t).html()))
                 })
                 let _matchedIndices = cxaiMatchMultipleByLetter(agrs, _multiOptions.length);
                 if (_matchedIndices.length === 0) {
@@ -5117,26 +5029,28 @@ function startDoWork(index, doms, c, TiMuList) {
                         function(idx) { return ($(_answerTmpArr[idx]).parent().find('span').attr('class') || '').indexOf('check_answer_dx') !== -1; }
                     );
                 }
-                let id = getStr($(TiMuList[c]).find('.Zy_ulTop li:nth-child(1)').attr('onclick'), 'addcheck(', ');').replace('(', '').replace(')', '')
-                if (_a.length <= 0) {
-                    logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
-                    // setting.sub = 0
+                let _onclickAttr = $(TiMuList[c]).find('.Zy_ulTop li:nth-child(1)').attr('onclick') || '';
+                let id = _onclickAttr ? cxai_getStr(_onclickAttr, 'addcheck(', ');').replace('(', '').replace(')', '') : '';
+                if (_matchedIndices.length === 0) {
+                    cxai_logger('AI未能匹配任何选项，请手动选择', 'red')
+                } else if (_a.length <= 0) {
+                    cxai_logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
+                    // cxaiCfg.sub = 0
                 } else {
                     $(TiMuList[c]).find('.Zy_ulTop').parent().find('#answer' + id).val(_a.join(""))
                 }
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
         }
         case 2: {
-            _question = buildPrompt({ type: '填空题', question: _question, answer_format: "多个填空用'|'分隔" })
+            _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "多个填空用'|'分隔" })
             let _textareaList = $(TiMuList[c]).find('.Zy_ulTk .XztiHover1')
-            getAnswer(_TimuType, _question).then((agrs) => {
+            cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $(TiMuList[c]).find('.Zy_TItle.clearfix > div')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
@@ -5147,9 +5061,9 @@ function startDoWork(index, doms, c, TiMuList) {
                         $(t).find('textarea').html('<p>' + _answerList[i] + '</p>')
                     }, 300)
                 })
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
         }
@@ -5157,25 +5071,24 @@ function startDoWork(index, doms, c, TiMuList) {
             _answerTmpArr = $(TiMuList[c]).find(".Zy_ulTop li").find("a");
             let _true = "正确|是|对|√|T|ri";
             $.each(_answerTmpArr, (i, t) => {
-                _a.push(tidyStr($(t).html()));
+                _a.push(cxai_tidyStr($(t).html()));
             });
-            _question = buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
-            getAnswer(_TimuType, _question).then((agrs) => {
+            _question = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" })
+            cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
-                    //修改题目将答案插入
                     let timuele = $(TiMuList[c]).find('.Zy_TItle.clearfix > div')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
-                let judgeResult = parseJudgeAnswer(agrs)
+                let judgeResult = cxai_parseJudgeAnswer(agrs)
                 if (judgeResult === null) {
-                    logger("答案匹配出错，跳过", "red");
-                    setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                    cxai_logger("答案匹配出错，跳过", "red");
+                    setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
                     return
                 }
-                let _i = findJudgeOptionIndex(_a, judgeResult === 'true');
+                let _i = cxai_findJudgeOptionIndex(_a, judgeResult === 'true');
                 if (_i == -1) {
-                    logger("未匹配到正确答案，跳过", "red");
+                    cxai_logger("未匹配到正确答案，跳过", "red");
                 } else {
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
                         $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
@@ -5184,20 +5097,20 @@ function startDoWork(index, doms, c, TiMuList) {
                     }
                 }
                 setTimeout(() => {
-                    startDoWork(index, doms, c + 1, TiMuList);
-                }, setting.time);
+                    cxai_startDoWork(index, doms, c + 1, TiMuList);
+                }, cxaiCfg.time);
             }).catch((agrs) => {
                 setTimeout(() => {
-                    startDoWork(index, doms, c + 1, TiMuList);
-                }, setting.time);
+                    cxai_startDoWork(index, doms, c + 1, TiMuList);
+                }, cxaiCfg.time);
             });
             break;
         }
         case 4: {
             let _textareaLista = $(TiMuList[c]).find('.Zy_ulTk .XztiHover1')
-            getAnswer(_TimuType, _question).then((agrs) => {
+            cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 if (agrs == '暂无答案') {
-                    // setting.sub = 0
+                    // cxaiCfg.sub = 0
                 }
                 let _answerList = agrs.split("|")
                 $.each(_textareaLista, (i, t) => {
@@ -5206,9 +5119,9 @@ function startDoWork(index, doms, c, TiMuList) {
                         $(t).find('textarea').html('<p>' + _answerList[i] + '</p>')
                     }, 300)
                 })
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
-                setTimeout(() => { startDoWork(index, doms, c + 1, TiMuList) }, setting.time)
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
         }
@@ -5216,7 +5129,9 @@ function startDoWork(index, doms, c, TiMuList) {
 }
 
 
-function tidyStr(s) {
+// 通用文字规范化（全角→半角、引号统一、句号替换、去末尾标点、合并空白）
+// 与404小站 formatString 对齐，提升 lyck6.cn 题库匹配率
+function cxai_tidyStr(s) {
     if (s) {
         let str = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').trim().replace(/&nbsp;/g, '').replace(new RegExp("&nbsp;", ("gm")), '').replace(/^\s+/, '').replace(/\s+$/, '');
         return str
@@ -5226,27 +5141,35 @@ function tidyStr(s) {
 }
 
 
-function tidyQuestion(s) {
+function cxai_tidyQuestion(s) {
     if (s) {
         let str = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').replace(/^\d+[.、]/, '').trim().replace(/&nbsp;/g, '').replace('javascript:void(0);', '').replace(new RegExp("&nbsp;", ("gm")), '').replace(/^\s+/, '').replace(/\s+$/, '');
         return str
     } else {
-        return null
+        return null;
     }
 }
 
 
-function decryptFont() {
+var _cxaiFontTableCache = null;
+
+function cxai_decryptFont() {
+    var font = null;
     var $tip = $('style:contains(font-cxsecret)');
-    if (!$tip.length) return;
+    if (!$tip.length) { console.log('[ChaoxingAI] 字体解密: 无待解密元素'); return; }
     var fontMatch = $tip.text().match(/base64,([\w\W]+?)'/);
-    if (!fontMatch || !fontMatch[1]) { console.warn('[ChaoxingAI] decryptFont: 未找到字体 base64 数据'); return; }
-    font = Typr.parse(base64ToUint8Array(fontMatch[1]));
-    if (!font || !font[0]) { console.warn('[ChaoxingAI] decryptFont: 字体解析失败'); return; }
+    if (!fontMatch || !fontMatch[1]) { console.warn('[ChaoxingAI] cxai_decryptFont: 未找到字体 base64 数据'); return; }
+    font = Typr.parse(cxai_base64ToUint8Array(fontMatch[1]));
+    if (!font || !font[0]) { console.warn('[ChaoxingAI] cxai_decryptFont: 字体解析失败'); return; }
     font = font[0];
     var tableText = GM_getResourceText('Table');
-    if (!tableText) { console.warn('[ChaoxingAI] decryptFont: 字体映射表加载失败，跳过解密'); return; }
-    var table = JSON.parse(tableText);
+    if (!tableText && !_cxaiFontTableCache) {
+        console.warn('[ChaoxingAI] 字体映射表(@resource)加载失败，尝试直接获取...');
+        _cxaiFetchFontTable($tip);
+        return;
+    }
+    var tableStr = tableText || _cxaiFontTableCache;
+    var table = JSON.parse(tableStr);
     var match = {};
     for (var i = 19968; i < 40870; i++) {
         $tip = Typr.U.codeToGlyph(font, i);
@@ -5255,6 +5178,9 @@ function decryptFont() {
         $tip = md5(JSON.stringify($tip)).slice(24);
         match[i] = table[$tip];
     }
+    var matchCount = Object.keys(match).length;
+    console.log('[ChaoxingAI] 字体解密: 映射表 ' + matchCount + ' 个字符, 待解密元素 ' + $('.font-cxsecret').length + ' 个');
+    if (matchCount === 0) { console.warn('[ChaoxingAI] 字体解密: 映射表为空，可能是字体映射表(CDN)加载失败'); return; }
     $('.font-cxsecret').html(function (index, html) {
         $.each(match, function (key, value) {
             key = String.fromCharCode(key);
@@ -5267,7 +5193,26 @@ function decryptFont() {
 }
 
 
-function base64ToUint8Array(base64) {
+function _cxaiFetchFontTable($tip) {
+    GM_xmlhttpRequest({
+        method: 'GET',
+        url: 'https://116611.xyz/table.json?_=' + Date.now(),
+        timeout: 15000,
+        onload: function (r) {
+            if (r.status === 200 && r.responseText) {
+                _cxaiFontTableCache = r.responseText;
+                console.log('[ChaoxingAI] 字体映射表直接获取成功，重新执行解密...');
+                try { cxai_decryptFont(); } catch (e) { console.warn('[ChaoxingAI] 重试解密失败:', e); }
+            } else {
+                console.warn('[ChaoxingAI] 字体映射表直接获取失败: HTTP ' + r.status);
+            }
+        },
+        onerror: function () { console.warn('[ChaoxingAI] 字体映射表网络请求失败'); },
+        ontimeout: function () { console.warn('[ChaoxingAI] 字体映射表请求超时'); }
+    });
+}
+
+function cxai_base64ToUint8Array(base64) {
     var data = window.atob(base64);
     var buffer = new Uint8Array(data.length);
     for (var i = 0; i < data.length; ++i) {
@@ -5277,7 +5222,7 @@ function base64ToUint8Array(base64) {
 }
 
 
-function waitForJQueryElement(selector) {
+function cxai_waitForJQueryElement(selector) {
     return new Promise(function (resolve) {
         var interval = setInterval(function () {
             if ($(selector).length > 0) {
@@ -5308,13 +5253,14 @@ function cxaiInitPasteBypassToggle(enable) {
         _cxaiPasteBypassStyleEl.textContent = 'input,textarea,[contenteditable="true"],.edit_text,.edui-body-container,.ueditor_wrap,.answercontent,.mark_answer,.answerTextContent{-webkit-user-select:text!important;-moz-user-select:text!important;-ms-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
         document.head.appendChild(_cxaiPasteBypassStyleEl);
         document.addEventListener('paste', _cxaiOnPasteBypass, true);
-        logger('粘贴限制绕过已启用', 'green');
+        cxai_logger('粘贴限制绕过已启用', 'green');
+        try { cxaiInitPasteBypass(); } catch (_) {}
     } else {
         if (!_cxaiPasteBypassEnabled) return;
         _cxaiPasteBypassEnabled = false;
         document.removeEventListener('paste', _cxaiOnPasteBypass, true);
         if (_cxaiPasteBypassStyleEl) { try { _cxaiPasteBypassStyleEl.remove(); } catch (_) {} _cxaiPasteBypassStyleEl = null; }
-        logger('粘贴限制绕过已关闭', 'gray');
+        cxai_logger('粘贴限制绕过已关闭', 'gray');
     }
 }
 
@@ -5334,6 +5280,7 @@ function cxaiInitPasteBypass() {
             }, 500);
             setTimeout(function () { clearInterval(checkObj); }, 10000);
             window.addEventListener('paste', function (e) {
+                if (localStorage.getItem('cxaiSetting.unlockPaste') !== 'true') return;
                 var target = e.target;
                 if (target.tagName === 'TEXTAREA' || target.contentEditable === 'true') {
                     e.stopImmediatePropagation();
@@ -5388,9 +5335,593 @@ function cxaiInitPasteBypass() {
         } + ')();';
         document.documentElement.appendChild(script);
         script.remove();
-        logger('粘贴限制绕过已注入', 'green');
+        cxai_logger('粘贴限制绕过已注入', 'green');
     } catch (e) {
-        logger('粘贴绕过注入失败: ' + e.message, 'red');
+        cxai_logger('粘贴绕过注入失败: ' + e.message, 'red');
     }
     cxaiInitPasteBypassToggle(true);
 }
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  一键复制所有题目功能
+// ═══════════════════════════════════════════════════════════════════════════════
+(function cxaiInitCopyAllQuestions() {
+    // 注入模态框 HTML
+    var modalHtml = '<div id="cxai-copy-modal-overlay">'
+        + '<div id="cxai-copy-modal-content">'
+        + '<h3>全部题目预览与编辑</h3>'
+        + '<div id="cxai-copy-modal-view" style="width:100%;flex-grow:1;min-height:400px;height:500px;overflow-y:auto;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;box-sizing:border-box;background:#11111b;color:rgba(210,216,234,.90);white-space:pre-wrap;"></div>'
+        + '<textarea id="cxai-copy-modal-textarea" style="display:none;"></textarea>'
+        + '<div id="cxai-copy-modal-footer">'
+        + '<button id="cxai-copy-modal-cancel" type="button">取消</button>'
+        + '<button id="cxai-copy-modal-copy" type="button">一键复制</button>'
+        + '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    var overlay = document.getElementById('cxai-copy-modal-overlay');
+    var textarea = document.getElementById('cxai-copy-modal-textarea');
+    var btnCancel = document.getElementById('cxai-copy-modal-cancel');
+    var btnCopy = document.getElementById('cxai-copy-modal-copy');
+
+    if (btnCancel) {
+        btnCancel.addEventListener('click', function () {
+            if (overlay) overlay.style.display = 'none';
+        });
+    }
+    if (btnCopy) {
+        btnCopy.addEventListener('click', function () {
+            var text = textarea ? textarea.value : '';
+            cxaiShowCopyToast('正在下载图片...');
+            // 提取所有图片 URL，下载为 base64
+            var imgUrls = [];
+            text.replace(/\[图片:(https?:\/\/[^\]]+)\]/g, function(m, url) { imgUrls.push(url); return m; });
+            var imgMap = {};
+            var done = 0;
+            if (imgUrls.length === 0) {
+                _doCopy(text, {});
+                return;
+            }
+            imgUrls.forEach(function(url) {
+                GM_xmlhttpRequest({
+                    method: 'GET', url: url, responseType: 'blob',
+                    onload: function(resp) {
+                        var reader = new FileReader();
+                        reader.onloadend = function() {
+                            imgMap[url] = reader.result;
+                            done++;
+                            if (done === imgUrls.length) _doCopy(text, imgMap);
+                        };
+                        reader.readAsDataURL(resp.response);
+                    },
+                    onerror: function() { imgMap[url] = url; done++; if (done === imgUrls.length) _doCopy(text, imgMap); },
+                    ontimeout: function() { imgMap[url] = url; done++; if (done === imgUrls.length) _doCopy(text, imgMap); }
+                });
+            });
+            function _doCopy(text, imgMap) {
+                // 构建 HTML（给 Word 等富文本编辑器，含 base64 图片）
+                var html = text.replace(/\[图片:(https?:\/\/[^\]]+)\]/g, function(m, url) {
+                    var src = imgMap[url] || url;
+                    return '<div style="margin:4px 0;"><img src="' + src + '" style="max-width:400px;max-height:200px;" /></div>';
+                });
+                html = html.replace(/^(# .+)$/gm, '<h2></h2>');
+                html = html.replace(/^(\d+)\. /gm, '<p><strong>. </strong>');
+                html = html.replace(/^([A-G])\. /gm, '<br/><strong>. </strong>');
+                html = '<div style="font-family:sans-serif;font-size:14px;line-height:1.8;">' + html + '</div>';
+                // 构建纯文本（给豆包等网页聊天框，图片保留 URL）
+                var plainText = text.replace(/\[图片:(https?:\/\/[^\]]+)\]/g, function(m, url) {
+                    return '[图片: ' + url + ']';
+                });
+                cxaiCopyToClipboard(plainText, html).then(function() {
+                    cxaiShowCopyToast('已复制题目内容（含' + Object.keys(imgMap).length + '张图片）');
+                    if (overlay) overlay.style.display = 'none';
+                }).catch(function() {
+                    cxaiShowCopyToast('复制失败，请手动选中复制');
+                });
+            }
+        });
+    }
+    // 点击遮罩关闭
+    if (overlay) {
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) overlay.style.display = 'none';
+        });
+    }
+
+    // 绑定复制按钮 — 使用事件委托，因为按钮在 cxai_showBox() 中动态创建
+    document.addEventListener('click', function (e) {
+        var copyBtn = e.target.closest('#cxai-copy-btn');
+        if (!copyBtn) return;
+        // 确保字体解密已执行（如果初始加载时映射表未就绪，此时重试）
+        function _ensureFontDecrypted() {
+            return new Promise(function (resolve) {
+                try {
+                    if ($('.font-cxsecret').length === 0) { resolve(); return; }
+                    if (typeof cxai_decryptFont !== 'function') { resolve(); return; }
+                    if (_cxaiFontTableCache || GM_getResourceText('Table')) {
+                        cxai_decryptFont();
+                        resolve();
+                    } else {
+                        console.log('[CXAI复制] 字体解密: 映射表未就绪，尝试直接获取...');
+                        _cxaiFetchFontTable(null);
+                        // 等待获取完成后再解密（最多等5秒）
+                        var _wait = 0;
+                        var _interval = setInterval(function () {
+                            _wait += 200;
+                            if (_cxaiFontTableCache || _wait >= 5000) {
+                                clearInterval(_interval);
+                                if (_cxaiFontTableCache) {
+                                    try { cxai_decryptFont(); } catch (e) {}
+                                }
+                                resolve();
+                            }
+                        }, 200);
+                    }
+                } catch (_) { resolve(); }
+            });
+        }
+        console.log('[CXAI复制] 开始采集题目...');
+        _ensureFontDecrypted().then(function () {
+            return cxaiCollectAllQuestions();
+        }).then(function (result) {
+            var content = result.text || '';
+            var images = result.images || [];
+            if (!content || !content.trim()) {
+                cxaiShowCopyToast('未找到题目内容');
+                return;
+            }
+            if (textarea) textarea.value = content;
+            var view = document.getElementById('cxai-copy-modal-view');
+            if (view) {
+                // 渲染 HTML：每道题后的图片 URL 替换为 <img> 标签
+                var html = content.replace(/\[图片:(https?:\/\/[^\]]+)\]/g, function(match, url) {
+                    return '<div style="margin:4px 0;display:inline-block;"><img src="' + url + '" style="max-width:100%;max-height:200px;border-radius:4px;border:1px solid rgba(255,255,255,.1);" onerror="this.style.display=\'none\'" /></div>';
+                });
+                html = html.replace(/\[图片\d+\]: (https?:\/\/[^\s]+)/g, function(match, url) {
+                    return '<div style="margin:4px 0"><img src="' + url + '" style="max-width:100%;max-height:200px;border-radius:4px;border:1px solid rgba(255,255,255,.1);" onerror="this.style.display=\'none\'" /></div>';
+                });
+                // 题目编号加粗
+                html = html.replace(/^(\d+\.) /gm, '<span style="color:rgba(165,180,252,.9);font-weight:600;"></span> ');
+                // 选项字母着色
+                html = html.replace(/^([A-G])\. /gm, '<span style="color:rgba(94,234,212,.8);font-weight:500;">.</span> ');
+                // 章节标题
+                html = html.replace(/^(# .+)$/gm, '<span style="color:rgba(245,210,70,.9);font-weight:600;"></span>');
+                view.innerHTML = html;
+            }
+            if (overlay) overlay.style.display = 'flex';
+        });
+    }, true);
+
+    // 从指定 document 中提取题目
+    // // 从节点提取文本，保留内嵌图片为 [图片:URL] 占位符
+    function cxaiTitleToText(node) {
+        if (!node) return '';
+        // 直接从 DOM 查询 img 标签提取图片 URL（不受 innerHTML/字体解密影响）
+        var imgPlaceholders = [];
+        var imgs = node.querySelectorAll('img');
+        for (var ii = 0; ii < imgs.length; ii++) {
+            var src = imgs[ii].getAttribute('data-src') || imgs[ii].getAttribute('data-original') || imgs[ii].getAttribute('data-lazy') || imgs[ii].src || '';
+            if (src && src.indexOf('data:') !== 0 && src.indexOf('http') !== -1) {
+                imgPlaceholders.push(' [图片:' + src + '] ');
+            }
+        }
+        // 使用 textContent 获取文本（字体解密后是正确文本）
+        var text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+        // 在文本末尾追加图片占位符
+        if (imgPlaceholders.length > 0) {
+            text = text + imgPlaceholders.join('');
+        }
+        return text;
+    }
+    // 从 [图片:URL] 占位符中提取所有图片 URL
+    function cxaiExtractImgsFromText(text) {
+        if (!text) return [];
+        var matches = text.match(/\[图片:(https?:\/\/[^\]]+)\]/g) || [];
+        return matches.map(function(s) {
+            var m = s.match(/\[图片:(.+)\]/);
+            return m ? m[1] : null;
+        }).filter(Boolean);
+    }
+    // 从容器中提取所有图片（排除选项区域的图片，但不排除标题区域——标题可能含图片）
+    function cxaiExtractContainerImgs(box, titleNode, ul) {
+        if (!box) return [];
+        var excludeNodes = [];
+        if (ul) excludeNodes.push(ul);
+        var allImgs = Array.prototype.slice.call(box.querySelectorAll('img'));
+        return allImgs.filter(function(img) {
+            if (excludeNodes.some(function(en) { return en.contains(img); })) return false;
+            var src = img.src || img.getAttribute('data-src') || '';
+            if (!src || src.indexOf('data:') === 0) return false;
+            return true;
+        }).map(function(img) {
+            return img.src || img.getAttribute('data-src') || '';
+        }).filter(Boolean);
+    }
+        // 从指定 document 中提取题目（支持多种页面结构）
+    function cxaiExtractQuestionsFromDoc(doc) {
+        var questions = [];
+
+        // ── 1. 测验/作业页面 (.TiMu 容器，含 .Zy_TItle 字体解密) ──
+        var timuContainers = Array.prototype.slice.call(doc.querySelectorAll('.TiMu'));
+        if (timuContainers.length > 0) {
+            timuContainers.forEach(function (box) {
+                var titleNode = box.querySelector('.Zy_TItle .fontLabel, .Zy_Title .fontLabel, .newZy_TItle .fontLabel, .newZy_Title .fontLabel')
+                    || box.querySelector('.Zy_TItle, .Zy_Title, .newZy_TItle, .newZy_Title');
+                var title = cxaiTitleToText(titleNode);
+                if (!title) return;
+                var titleImgs = cxaiExtractImgsFromText(title);
+                var ul = box.querySelector('ul.Zy_ulTop.w-top.fl');
+                var lis = ul ? Array.prototype.slice.call(ul.querySelectorAll(':scope > li')) : [];
+                var options = lis.map(function (li, idx) {
+                    var p = li.querySelector('p') || li.querySelector('a') || li;
+                    var text = cxaiTitleToText(p);
+                    return String.fromCharCode(65 + idx) + '. ' + text;
+                }).filter(Boolean);
+                // 提取容器中标题和选项之外的独立图片（去重）
+                var containerImgs = cxaiExtractContainerImgs(box, titleNode, ul);
+                containerImgs.forEach(function(url) {
+                    if (titleImgs.indexOf(url) === -1) {
+                        title += ' [图片:' + url + ']';
+                        titleImgs.push(url);
+                    }
+                });
+                // 去重图片
+                var _seenImg = {}; titleImgs = titleImgs.filter(function(u) { if (_seenImg[u]) return false; _seenImg[u] = true; return true; });
+                questions.push({ title: title, options: options, images: titleImgs });
+            });
+            if (questions.length > 0) return questions;
+        }
+
+        // ── 2. 独立作业/考试页面 (.questionLi + .mark_name) ──
+        var questionLis = Array.prototype.slice.call(doc.querySelectorAll('.mark_table .questionLi, .questionLi'));
+        if (questionLis.length > 0) {
+            questionLis.forEach(function (li) {
+                var nameNode = li.querySelector('.mark_name');
+                var title = cxaiTitleToText(nameNode);
+                if (!title) return;
+                var titleImgs = cxaiExtractImgsFromText(title);
+                var answerPs = Array.prototype.slice.call(li.querySelectorAll('.stem_answer .answer_p'));
+                var options = answerPs.map(function (p, idx) {
+                    var text = cxaiTitleToText(p);
+                    return String.fromCharCode(65 + idx) + '. ' + text;
+                }).filter(Boolean);
+                // 提取容器中标题和选项之外的独立图片（去重）
+                var containerImgs = cxaiExtractContainerImgs(li, nameNode, null);
+                containerImgs.forEach(function(url) {
+                    if (titleImgs.indexOf(url) === -1) {
+                        title += ' [图片:' + url + ']';
+                        titleImgs.push(url);
+                    }
+                });
+                var _seenImg2 = {}; titleImgs = titleImgs.filter(function(u) { if (_seenImg2[u]) return false; _seenImg2[u] = true; return true; });
+                questions.push({ title: title, options: options, images: titleImgs });
+            });
+            if (questions.length > 0) return questions;
+        }
+
+        // ── 3. 手机端作业 (.Py-mian1) ──
+        var pyMians = Array.prototype.slice.call(doc.querySelectorAll('.Py-mian1'));
+        if (pyMians.length > 0) {
+            pyMians.forEach(function (box) {
+                var titleNode = box.querySelector('.Py-m1-title, .Py-mian-T, .mark_name, h3');
+                var title = cxaiTitleToText(titleNode);
+                if (!title) return;
+                var titleImgs = cxaiExtractImgsFromText(title);
+                var optionNodes = Array.prototype.slice.call(box.querySelectorAll('.xuanxiang li, .stem_answer .answer_p, li'));
+                var options = optionNodes.map(function (n, idx) {
+                    var text = cxaiTitleToText(n);
+                    return String.fromCharCode(65 + idx) + '. ' + text;
+                }).filter(function (t) { return t.length > 3; });
+                // 提取容器中标题和选项之外的独立图片（去重）
+                var containerImgs = cxaiExtractContainerImgs(box, titleNode, null);
+                containerImgs.forEach(function(url) {
+                    if (titleImgs.indexOf(url) === -1) {
+                        title += ' [图片:' + url + ']';
+                        titleImgs.push(url);
+                    }
+                });
+                var _seenImg3 = {}; titleImgs = titleImgs.filter(function(u) { if (_seenImg3[u]) return false; _seenImg3[u] = true; return true; });
+                questions.push({ title: title, options: options, images: titleImgs });
+            });
+            if (questions.length > 0) return questions;
+        }
+
+        // ── 4. 兜底：从标题列表提取 ──
+        var primarySelectors = [
+            '.Zy_TItle .fontLabel', '.Zy_Title .fontLabel',
+            '.newZy_TItle .fontLabel', '.newZy_Title .fontLabel',
+            '[class*="Zy_"][class*="TItle"] .fontLabel',
+            '[class*="Zy_"][class*="Title"] .fontLabel',
+            '.mark_name',
+            '.Py-mian-T'
+        ];
+        var fallbackSelectors = ['.Zy_TItle', '.Zy_Title', '.newZy_TItle', '.newZy_Title', '.mark_name', '.Py-mian-T'];
+        var seen = {};
+        function addFromSelectors(selectors) {
+            selectors.forEach(function (sel) {
+                Array.prototype.slice.call(doc.querySelectorAll(sel)).forEach(function (n) {
+                    var titleText = cxaiTitleToText(n);
+                    if (titleText && !seen[titleText]) {
+                        seen[titleText] = true;
+                        var imgs = cxaiExtractImgsFromText(titleText);
+                        questions.push({ title: titleText, options: [], images: imgs });
+                    }
+                });
+            });
+        }
+        addFromSelectors(primarySelectors);
+        if (questions.length === 0) addFromSelectors(fallbackSelectors);
+
+        // ── 5. 终极兜底：文本模式匹配（章节测试等非常规页面） ──
+        if (questions.length === 0) {
+            var body = doc.body;
+            if (body) {
+                var fullText = body.innerText || body.textContent || "";
+                // 模式1: 严格匹配 - 必须有题型标记 [多选题] [单选题] 等
+                var qPattern = /(?:^|\n)\s*(\d+)\s*[.．、]\s*[\[【]?(单选题|多选题|判断题|填空题|简答题|论述题|名词解释|翻译题|写作题|选择题|不定项选择)[】\]]?\s*\n?([\s\S]*?)(?=(?:^|\n)\s*\d+\s*[.．、]\s*[\[【]?(?:单选题|多选题|判断题|填空题|简答题|论述题|名词解释|翻译题|写作题|选择题|不定项选择)|$)/g;
+                var m;
+                while ((m = qPattern.exec(fullText)) !== null) {
+                    var qNum = m[1];
+                    var qType = m[2];
+                    var qBody = m[3] || "";
+                    if (qBody.trim().length < 3) continue;
+                    // 从题目体中提取选项
+                    var optMatches = qBody.match(/(?:^|\n)\s*([A-G])\s*[.．、\s]\s*(.+)/g);
+                    var opts = [];
+                    var titleText = qBody;
+                    if (optMatches && optMatches.length >= 2) {
+                        opts = optMatches.map(function(line) {
+                            var om = line.trim().match(/^([A-G])\s*[.．、\s]\s*(.+)/);
+                            return om ? om[1] + ". " + om[2].trim() : null;
+                        }).filter(Boolean);
+                        // 标题 = 第一个选项之前的部分
+                        var firstOptIdx = qBody.indexOf(optMatches[0].trim());
+                        titleText = qBody.substring(0, firstOptIdx).trim();
+                    }
+                    titleText = titleText.replace(/^\s*\n?/, "").trim();
+                    if (titleText.length > 2) {
+                        questions.push({ title: titleText, options: opts, type: qType, images: [] });
+                    }
+                }
+                // 模式2: 宽松匹配 - 纯数字编号 + 至少2个ABCD选项（章节测验常见格式）
+                if (questions.length === 0) {
+                    var loosePattern = /(?:^|\n)\s*(\d+)\s*[.．、\)\）]\s*([\s\S]*?)(?=(?:^|\n)\s*\d+\s*[.．、\)\）]\s*[A-Da-d]|[A-G]\s*[.．、\s]|$)/g;
+                    var lm;
+                    while ((lm = loosePattern.exec(fullText)) !== null) {
+                        var lBody = lm[2] || "";
+                        if (lBody.trim().length < 5) continue;
+                        var lOpts = lBody.match(/(?:^|\n)\s*([A-G])\s*[.．、\s]\s*(.+)/g);
+                        if (lOpts && lOpts.length >= 2) {
+                            var lTitle = lBody.substring(0, lBody.indexOf(lOpts[0].trim())).trim();
+                            var lParsedOpts = lOpts.map(function(line) {
+                                var om2 = line.trim().match(/^([A-G])\s*[.．、\s]\s*(.+)/);
+                                return om2 ? om2[1] + ". " + om2[2].trim() : null;
+                            }).filter(Boolean);
+                            if (lTitle.length > 2) {
+                                questions.push({ title: lTitle, options: lParsedOpts, images: [] });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return questions;
+    }
+
+    // 终极兜底：遍历所有 DOM 元素，查找含选择题格式的文本块
+    function cxaiExtractByWalkingDOM(doc) {
+        var questions = [];
+        if (!doc || !doc.body) return questions;
+        var allEls = doc.body.querySelectorAll('*');
+        for (var i = 0; i < allEls.length; i++) {
+            var el = allEls[i];
+            // 跳过脚本、样式、不可见元素
+            if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'NOSCRIPT') continue;
+            if (el.offsetParent === null && el.tagName !== 'BODY') continue;
+            var t = el.textContent || '';
+            if (t.length < 10) continue;
+            // 检测是否包含选择题特征：至少2个 A. B. 格式的选项
+            var optCount = (t.match(/(?:^|\n)\s*[A-D]\s*[.．、]\s*\S/g) || []).length;
+            if (optCount >= 2) {
+                // 提取题目文本和选项
+                var lines = t.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+                var opts = [];
+                var titleParts = [];
+                for (var j = 0; j < lines.length; j++) {
+                    var om = lines[j].match(/^([A-D])\s*[.．、]\s*(.+)/);
+                    if (om) {
+                        opts.push(om[1] + '. ' + om[2].trim());
+                    } else if (opts.length === 0 && lines[j].length > 2) {
+                        titleParts.push(lines[j]);
+                    }
+                }
+                var titleText = titleParts.join(' ').trim();
+                if (titleText.length > 2 && opts.length >= 2) {
+                    // 去重
+                    var key = titleText.substring(0, 30);
+                    var isDup = false;
+                    for (var k = 0; k < questions.length; k++) {
+                        if (questions[k].title.substring(0, 30) === key) { isDup = true; break; }
+                    }
+                    if (!isDup) {
+                        questions.push({ title: titleText, options: opts, images: [] });
+                    }
+                }
+            }
+        }
+        return questions;
+    }
+
+    // 递归采集所有 document（含 iframe）
+    function cxaiCollectFromDoc(doc) {
+        var sections = [];
+
+        var header = '';
+        var h3 = doc.querySelector('.ceyan_name h3');
+        if (h3 && h3.textContent) header = h3.textContent.trim();
+        if (!header) {
+            var testName = doc.querySelector('.newTestTitle .TestTitle_name');
+            if (testName && testName.textContent) header = testName.textContent.trim();
+        }
+        if (!header) {
+            var h2s = Array.prototype.slice.call(doc.querySelectorAll('h2'));
+            var anchor = h2s.filter(function (h) { return h.textContent && h.textContent.indexOf('章节详情') !== -1; });
+            if (anchor.length && anchor[0].textContent) header = anchor[0].textContent.trim();
+        }
+
+        var questions = cxaiExtractQuestionsFromDoc(doc);
+        console.log('[CXAI复制] doc=' + (doc.title || doc.location?.href || 'unknown') + ' 提取到 ' + questions.length + ' 道题');
+        if (questions.length > 0) {
+            sections.push({ header: header || doc.title || '', questions: questions });
+        }
+
+        var frames = Array.prototype.slice.call(doc.querySelectorAll('iframe'));
+        console.log('[CXAI复制] 找到 ' + frames.length + ' 个 iframe，尝试递归...');
+        for (var fi = 0; fi < frames.length; fi++) {
+            var frame = frames[fi];
+            try {
+                var fdoc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+                if (fdoc && fdoc.body) {
+                    console.log('[CXAI复制] iframe[' + fi + '] 可访问，src=' + (frame.src || 'none').slice(0, 80));
+                    sections = sections.concat(cxaiCollectFromDoc(fdoc));
+                }
+            } catch (err) {
+                console.log('[CXAI复制] iframe[' + fi + '] 跨域无法访问: ' + (frame.src || 'none').slice(0, 80));
+            }
+        }
+        return sections;
+    }
+
+    // 汇总所有题目为文本
+    function cxaiCollectAllQuestions() {
+        return new Promise(function (resolve) {
+            var sections = cxaiCollectFromDoc(document);
+            var totalQ = 0;
+            sections.forEach(function(s) { if (s.questions) totalQ += s.questions.length; });
+            if (totalQ === 0) {
+                setTimeout(function () {
+                    var retry = cxaiCollectFromDoc(document);
+                    // 如果仍然没找到，尝试 DOM 遍历兜底
+                    var retryQ = 0;
+                    retry.forEach(function(s) { if (s.questions) retryQ += s.questions.length; });
+                    if (retryQ === 0) {
+                        var domWalk = cxaiExtractByWalkingDOM(document);
+                        if (domWalk.length > 0) {
+                            retry = [{ header: document.title || '', questions: domWalk }];
+                        }
+                    }
+                    buildAndResolve(retry);
+                }, 2000);
+            } else {
+                buildAndResolve(sections);
+            }
+            function buildAndResolve(sections) {
+            var lines = [];
+            var allImages = [];
+            sections.forEach(function (section) {
+                if (section.questions && section.questions.length) {
+                    if (section.header) {
+                        lines.push('# ' + section.header);
+                        lines.push('');
+                    }
+                    section.questions.forEach(function (q, idx) {
+                        lines.push((idx + 1) + '. ' + q.title);
+
+                        if (q.images && q.images.length) {
+                            // 去重：同一张图片只保留一次
+                            var seenImgs = {};
+                            q.images.forEach(function(imgUrl) {
+                                if (!seenImgs[imgUrl]) {
+                                    seenImgs[imgUrl] = true;
+                                    allImages.push(imgUrl);
+                                }
+                            });
+                        }
+                        if (q.options && q.options.length) {
+                            q.options.forEach(function (opt) { lines.push(opt); });
+                        }
+                        lines.push('');
+                    });
+                }
+            });
+            resolve({ text: lines.join('\n'), images: allImages });
+            }
+        });
+    }
+
+    // 复制到剪贴板（同时写入 HTML + 纯文本，兼容 Word 和网页聊天框）
+    function cxaiCopyToClipboard(text, html) {
+        return new Promise(function (resolve, reject) {
+            // 优先用 Clipboard API 同时写入两种格式
+            if (navigator.clipboard && navigator.clipboard.write) {
+                var htmlBlob = new Blob([html || text], { type: 'text/html' });
+                var textBlob = new Blob([text], { type: 'text/plain' });
+                var item = new ClipboardItem({
+                    'text/html': htmlBlob,
+                    'text/plain': textBlob
+                });
+                navigator.clipboard.write([item]).then(resolve).catch(function () {
+                    // Clipboard API 失败，降级
+                    _cxaiFallbackCopy(text, html, resolve);
+                });
+            } else {
+                _cxaiFallbackCopy(text, html, resolve);
+            }
+        });
+    }
+    function _cxaiFallbackCopy(text, html, resolve) {
+        if (html && typeof GM_setClipboard === 'function') {
+            GM_setClipboard(html, 'html');
+            resolve();
+        } else if (html) {
+            _fallbackHtmlCopy(text, html, resolve);
+        } else {
+            cxFallbackCopy(text); resolve();
+        }
+    }
+    function _fallbackHtmlCopy(text, html, resolve) {
+        if (html) {
+            var div = document.createElement('div');
+            div.innerHTML = html;
+            div.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+            document.body.appendChild(div);
+            var range = document.createRange();
+            range.selectNodeContents(div);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            try { document.execCommand('copy'); } catch (e) {}
+            sel.removeAllRanges();
+            document.body.removeChild(div);
+            resolve();
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(resolve).catch(function () {
+                cxFallbackCopy(text); resolve();
+            });
+        } else {
+            cxFallbackCopy(text); resolve();
+        }
+    }
+
+    function cxFallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+    }
+
+    // toast 提示
+    function cxaiShowCopyToast(msg) {
+        var el = document.createElement('div');
+        el.textContent = msg;
+        el.style.cssText = 'position:fixed;left:50%;top:24px;transform:translateX(-50%);background:rgba(0,0,0,.78);color:#fff;padding:8px 16px;border-radius:6px;font-size:13px;z-index:100001;pointer-events:none;';
+        document.body.appendChild(el);
+        setTimeout(function () { el.remove(); }, 1800);
+    }
+})();
+})();
