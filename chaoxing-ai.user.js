@@ -8,7 +8,7 @@
 // @supportURL   https://github.com/Z-Fovik-RT/chaoxing-ai/issues
 // @icon         https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/icon.png
 // @tag          学习通
-// @tag          自定义API
+// @tag          模型自定义API
 // @tag          AI答题
 // @tag          学习辅助
 // @antifeature  本脚本AI功能需要用户自备API Key，第三方题库Token需联系题库作者
