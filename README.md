@@ -47,6 +47,17 @@ https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.j
 
 ## 更新日志
 
+### v1.2.3
+* 移除与其他脚本的恶意兼容代码（不再操作其他脚本变量）
+* 移除"免费""自动刷课"等误导性标签，改为"学习辅助"
+* 移除向第三方发送用户URL行为，仅发送题目文本
+* `@connect` 从通配符改为具体域名白名单，提升安全性
+* 新增 `@antifeature` 标注，明确AI功能需自备API Key
+* 修复一键复制题目图片提取逻辑，支持更多图片URL格式
+* 修复切换Provider时旧版API Key错误迁移问题
+* API Key输入框添加 `autocomplete="new-password"` 防止浏览器自动填充
+* 更新模型列表（DeepSeek V4、Qwen 3.6/3.7、GLM 5、Kimi K2.6、GPT 5.4 等）
+
 ### v1.2.2
 * 脚本更名为「学习通 · AI智脑Pro」
 * 新增版本更新自动刷新（检测到新版本3秒后自动刷新页面）

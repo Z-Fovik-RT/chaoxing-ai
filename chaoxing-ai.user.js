@@ -1,8 +1,8 @@
 ﻿// ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.2.2
-// @description  学习通全自动学习助手 | 10大AI模型 + 第三方题库 + 视频自动播放 + 字体解密 + 章节导航 + 粘贴解锁 + 自动提交 + 题目一键复制（纯文本/富文本双模式）
+// @version      1.2.3
+// @description  学习通AI学习助手 | 10大AI模型 + 第三方题库 + 视频自动播放 + 字体解密 + 章节导航 + 粘贴解锁 + 题目一键复制
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
 // @supportURL   https://github.com/Z-Fovik-RT/chaoxing-ai/issues
@@ -10,11 +10,24 @@
 // @tag          学习通
 // @tag          自定义API
 // @tag          AI答题
-// @tag          自动刷课
-// @tag          免费
+// @tag          学习辅助
+// @antifeature  本脚本AI功能需要用户自备API Key，第三方题库Token需联系题库作者
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
-// @connect      *
+// @connect      api.deepseek.com
+// @connect      api.openai.com
+// @connect      dashscope.aliyuncs.com
+// @connect      open.bigmodel.cn
+// @connect      api.moonshot.cn
+// @connect      aip.baidubce.com
+// @connect      api.coze.cn
+// @connect      api.minimax.chat
+// @connect      api.siliconflow.cn
+// @connect      token-plan-cn.xiaomimimo.com
+// @connect      lyck6.cn
+// @connect      p.ananas.chaoxing.com
+// @connect      116611.xyz
+// @connect      ark.cn-beijing.volces.com
 // @connect      raw.githubusercontent.com
 // @connect      github.com
 // @run-at       document-end
@@ -368,14 +381,6 @@ try { cxaiCfg.decrypt ? cxai_decryptFont() : ''; } catch (e) { console.warn('[AI
 
 try { cxaiInitPasteBypass(); } catch (e) { console.warn('[AI智脑Pro] pasteBypass error:', e); }
 
-// 兼容检测：如果同时运行了“ChatGPT学习通作业考试助手”(NE-21)，自动禁用其答题功能避免冲突
-try {
-    if (unsafeWindow && unsafeWindow.setting && unsafeWindow.setting.work !== undefined) {
-        unsafeWindow.setting.work = 0;
-        unsafeWindow.setting.examTurn = 0;
-        console.log('[AI智脑Pro] 检测到NE-21脚本已运行，已自动禁用其答题功能');
-    }
-} catch (e) { /* 无法访问其 cxaiCfg 对象，跳过 */ }
 
 // ← 隐藏面板 / → 显示面板（快捷键）
 function _cxaiToggleBox(show) {
@@ -1033,7 +1038,7 @@ function cxai_showBox() {
                     <div id="cxai-notice"></div>
                     <div id="cxai-userInfo"></div>
                     <div id="cxai-moreSettings" style="display:none;">
-                        <label class="cxai-field">API Key：<input type="password" id="cxaiSetting.apiKey" class="cxai-select" placeholder="输入API Key" style="width:100%;margin-top:2px;"></label>
+                        <label class="cxai-field">API Key：<input type="password" id="cxaiSetting.apiKey" class="cxai-select" placeholder="输入API Key" autocomplete="new-password" style="width:100%;margin-top:2px;"></label>
                         <label class="cxai-field" id="cxai-ernie-secret" style="display:none">Secret Key：<input type="password" id="cxaiSetting.ernieSecretKey" class="cxai-select" placeholder="ERNIE Secret Key" style="width:100%;margin-top:2px;"></label>
                         <p></p>
                         <label class="cxai-field" title="AI代理服务器地址（留空则使用上方Provider直连）">代理地址(国产模型可留空)：<input type="text" id="cxaiSetting.apiHost" class="cxai-select" placeholder="https://your-domain.com" style="width:100%;margin-top:2px;"></label>
@@ -5971,13 +5976,14 @@ function cxaiInitPasteBypass() {
                     section.questions.forEach(function (q, idx) {
                         lines.push((idx + 1) + '. ' + q.title);
 
+                        // 将图片URL作为独立行输出，方便查看
                         if (q.images && q.images.length) {
-                            // 去重：同一张图片只保留一次
                             var seenImgs = {};
                             q.images.forEach(function(imgUrl) {
                                 if (!seenImgs[imgUrl]) {
                                     seenImgs[imgUrl] = true;
                                     allImages.push(imgUrl);
+                                    lines.push('[图片] ' + imgUrl);
                                 }
                             });
                         }
