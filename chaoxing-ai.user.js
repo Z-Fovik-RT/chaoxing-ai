@@ -11,7 +11,8 @@
 // @tag          模型自定义API
 // @tag          AI答题
 // @tag          学习辅助
-// @antifeature  本脚本AI功能需要用户自备API Key，第三方题库Token需联系题库作者
+// @antifeature  payment AI功能需要用户自备API Key才能使用
+// @antifeature  membership 第三方题库付费Token需联系作者获取
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
 // @connect      api.deepseek.com
