@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.2.3
+// @version      1.2.4
 // @description  学习通AI学习助手 | 10大AI模型 + 第三方题库 + 视频自动播放 + 字体解密 + 章节导航 + 粘贴解锁 + 题目一键复制
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -11,8 +11,8 @@
 // @tag          模型自定义API
 // @tag          AI答题
 // @tag          学习辅助
-// @antifeature  payment AI功能需要用户自备API Key才能使用
-// @antifeature  membership 第三方题库付费Token需联系作者获取
+// @antifeature  payment AI功能需要用户自备模型API Key才能使用
+// @antifeature  membership 第三方题库付费Token需联系题库作者获取
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
 // @connect      api.deepseek.com
@@ -24,10 +24,14 @@
 // @connect      api.coze.cn
 // @connect      api.minimax.chat
 // @connect      api.siliconflow.cn
+// @connect      api.anthropic.com
 // @connect      token-plan-cn.xiaomimimo.com
 // @connect      lyck6.cn
+// @connect      cx.icodef.com
 // @connect      p.ananas.chaoxing.com
 // @connect      116611.xyz
+// @connect      cdn.lyck6.cn
+// @connect      www.forestpolice.org
 // @connect      ark.cn-beijing.volces.com
 // @connect      raw.githubusercontent.com
 // @connect      github.com
@@ -155,10 +159,16 @@ var cxaiCfg = {
     fuzzyMatch: 1,  // 相似度匹配，0为关闭，1为开启，开启后当精确匹配失败时使用相似度匹配选择最接近的选项
 
     examTurn: 0,     // 考试自动跳转下一题，0为关闭，1为开启
-    examTurnTime: 0, // 考试自动跳转下一题随机间隔时间(3-7s)之间，0为关闭，1为开启
-    goodStudent: 1,  // 好学生模式,不自动选择答案,仅将单选题和多选题的ABCD加粗
+    goodStudent: 0,  // 好学生模式,不自动选择答案,仅将单选题和多选题的ABCD加粗（默认关闭，与localStorage一致）
     alterTitle: 1,  //修改题目,将AI回复的答案插入题目中
 };
+
+// 辅助函数：好学生模式守卫 —— 重做模式下始终允许点击（解决好学生+重做冲突）
+// 返回 true 表示应阻止点击（好学生模式开启且非重做模式）
+function cxai_shouldBlockByGoodStudent() {
+    if (cxai_isRedoMode()) return false;  // 重做模式下不阻止
+    return localStorage.getItem('cxaiSetting.goodStudent') === 'true';
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  § 2. AI 请求 & 响应处理
@@ -619,7 +629,7 @@ function cxaiFindAnswerIndex(optionsArr, answerStr) {
     var _i = optionsArr.findIndex(function (item) { return item === answerStr; });
     if (_i !== -1) return _i;
     // ★ 去标点精确匹配（解决 AI 返回答案缺少末尾标点的问题）
-    var _stripPunc = function(s) { return s.replace(/[。，、；：！？…·""''【】（）《》\.\,\;\!\?\:\'\"\(\)\[\]\<\>]/g, '').trim(); };
+    var _stripPunc = function(s) { return s.replace(/[。，、；：！？…·""''【】（）《》\.\,\;\!\?\:\'\"\(\)\[\]\<\>\n\r\t\s　～~—\-–​‌‍﻿]/g, '').trim(); };
     var _strippedAnswer = _stripPunc(answerStr);
     if (_strippedAnswer.length > 0) {
         var _j = optionsArr.findIndex(function (item) { return _stripPunc(item) === _strippedAnswer; });
@@ -664,7 +674,7 @@ function cxaiFindMultipleIndices(optionsArr, answerStr) {
         return _letterIdx;
     }
 
-    var _stripPunc = function(s) { return s.replace(/[。，、；：！？…·""''【】（）《》\.\,\;\!\?\:\'\"\(\)\[\]\<\>]/g, '').trim(); };
+    var _stripPunc = function(s) { return s.replace(/[。，、；：！？…·""''【】（）《》\.\,\;\!\?\:\'\"\(\)\[\]\<\>\n\r\t\s　～~—\-–​‌‍﻿]/g, '').trim(); };
 
     // ★★★ 增强：先用分隔符拆分答案，逐片段匹配选项（解决AI返回非标准格式导致少选的问题）
     var _parts = answerStr.split(/[\|｜\n;；,，、]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
@@ -1993,9 +2003,11 @@ function cxai_missonWork(dom, obj) {
 
 
 var _cxaiPhoneWorkRunning = false;
+var _cxaiPhoneSkipped = 0;
 function cxai_doPhoneWork($dom) {
     if (_cxaiPhoneWorkRunning) return;
     _cxaiPhoneWorkRunning = true;
+    _cxaiPhoneSkipped = 0;
     setTimeout(function() { _cxaiPhoneWorkRunning = false; }, 60000);
     let $cy = $dom.find('.Wrappadding form')
     $subBtn = $cy.find('.zquestions .zsubmit .btn-ok-bottom')
@@ -2009,7 +2021,7 @@ function cxai_doPhoneWork($dom) {
 function cxai_startDoPhoneTimu(index, TimuList) {
     if (index == TimuList.length) {
         _cxaiPhoneWorkRunning = false;
-        if (localStorage.getItem('cxaiSetting.sub') === 'true') {
+        if (localStorage.getItem('cxaiSetting.sub') === 'true' && _cxaiPhoneSkipped === 0) {
             cxai_logger('测验处理完成，准备自动提交。', 'green')
             setTimeout(() => {
                 $subBtn.click()
@@ -2034,7 +2046,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                 }, 3000)
             }, 5000)
         } else {
-            cxai_logger('测验处理完成，存在无答案题目或用户设置不自动提交，自动保存！', 'green')
+            cxai_logger(_cxaiPhoneSkipped > 0 ? '存在 ' + _cxaiPhoneSkipped + ' 道未答题目，自动保存！' : '测验处理完成，自动保存！', 'green')
             setTimeout(() => {
                 $saveBtn.click()
                 setTimeout(() => {
@@ -2132,7 +2144,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     } else {
                         if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).click()
                         }
                     }
@@ -2151,11 +2163,12 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                     if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                     if (_i == -1) {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                         // cxaiCfg.sub = 0
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     } else {
-                        if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                        if (cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[_i]).find('span').css('font-weight', 'bold');
                         } else {
                             $(_answerTmpArr[_i]).click()
@@ -2164,6 +2177,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }
                 }).catch(() => {
+                    _cxaiPhoneSkipped++;
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
@@ -2191,7 +2205,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     } else {
                         if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).click()
                         }
                         // 不break，继续取消其他已选选项
@@ -2202,6 +2216,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                 cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                         // cxaiCfg.sub = 0
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
@@ -2220,7 +2235,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                         if (_matchedIndices.length === 0) {
                             _matchedIndices = cxaiFindMultipleIndices(_multiOptions, agrs);
                         }
-                        if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                        if (cxai_shouldBlockByGoodStudent()) {
                             for (let fi = 0; fi < _matchedIndices.length; fi++) {
                                 $(_answerTmpArr[_matchedIndices[fi]]).find('span').css('font-weight', 'bold');
                             }
@@ -2234,6 +2249,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                         var _totalWait = 300 + _answerTmpArr.length * 600 + _matchedIndices.length * 600 + 500 + (_matchedIndices.length) * 500 + 600;
                         setTimeout(() => {
                             if (_matchedIndices.length === 0) {
+                                _cxaiPhoneSkipped++;
                                 cxai_logger('AI未能匹配任何选项，请手动选择', 'red')
                             } else {
                                 var allSelected = true;
@@ -2252,6 +2268,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                         }, _totalWait)
                     }
                 }).catch(() => {
+                    _cxaiPhoneSkipped++;
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
@@ -2276,6 +2293,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                 cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
@@ -2336,6 +2354,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
 
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time + 300 * editorBlocks.length)
                 }).catch(() => {
+                    _cxaiPhoneSkipped++;
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             } else if (tkList && tkList.length > 0) {
@@ -2348,6 +2367,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                 cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('AI未能完美匹配正确答案，请尝试更换更高级模型或手动选择，跳过此题', 'red')
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
@@ -2363,6 +2383,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     })
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                 }).catch(() => {
+                    _cxaiPhoneSkipped++;
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             } else {
@@ -2387,7 +2408,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     } else {
                         if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
                         // 重做模式：先取消已选选项
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).click()
                         }
                     }
@@ -2400,18 +2421,20 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     agrs = String(agrs);
                     let judgeResult = cxai_parseJudgeAnswer(agrs)
                     if (judgeResult === null) {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('答案匹配出错，准备切换下一题', 'red')
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
                     let _i = cxai_findJudgeOptionIndex(_a, judgeResult === 'true')
                     if (_i === -1) {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('未匹配到正确选项，跳过', 'red')
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
                     setTimeout(() => {
-                        if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                        if (cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[_i]).find('span').css('font-weight', 'bold');
                         } else {
                             $(_answerTmpArr[_i]).click()
@@ -2420,6 +2443,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }, 300)
                 }).catch(() => {
+                    _cxaiPhoneSkipped++;
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
@@ -2446,6 +2470,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                 cxai_getAnswer(_type, _question).then((agrs) => {
                     agrs = String(agrs);
                     if (agrs == '暂无答案') {
+                        _cxaiPhoneSkipped++;
                         cxai_logger('AI无法匹配答案，请手动完成', 'red')
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
@@ -2518,6 +2543,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
 
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                 }).catch(() => {
+                    _cxaiPhoneSkipped++;
                     setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                 })
             }
@@ -2532,6 +2558,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                     cxai_getAnswer(_type, _question).then((agrs) => {
                         agrs = String(agrs);
                         if (agrs == '暂无答案') {
+                            _cxaiPhoneSkipped++;
                             cxai_logger('AI无法匹配答案，请手动完成', 'red')
                         } else {
                             $(jdTextareas[0]).val(agrs)
@@ -2540,6 +2567,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
                         }
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }).catch(() => {
+                        _cxaiPhoneSkipped++;
                         setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
                     })
                 }
@@ -2552,6 +2580,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
             break
         }
         case 5: {
+            _cxaiPhoneSkipped++;
             cxai_getAnswer(_type, _question).then((agrs) => {
                 // cxaiCfg.sub = 0
                 cxai_logger('此类型题目无法区分单/多选，请手动选择答案', 'red')
@@ -2562,6 +2591,7 @@ function cxai_startDoPhoneTimu(index, TimuList) {
             break
         }
         default:
+            _cxaiPhoneSkipped++;
             cxai_logger('暂不支持处理此类型题目：' + questionFull.match(/.*?\[(.*?)]|$/)[1] + '，跳过！请手动作答。', 'red')
             // cxaiCfg.sub = 0
             setTimeout(() => { cxai_startDoPhoneTimu(index + 1, TimuList) }, cxaiCfg.time)
@@ -2901,8 +2931,9 @@ function cxai_doHomeWork(index, TiMuList) {
                         setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                     } else {
                         if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
-                            $(_answerTmpArr[i]).parent().click()
+                        // 重做模式：先取消已选选项
+                        if (!cxai_shouldBlockByGoodStudent()) {
+                            $(_answerTmpArr[i]).click()
                         }
                     }
                     break
@@ -2930,7 +2961,7 @@ function cxai_doHomeWork(index, TiMuList) {
                         setTimeout(() => {
                             let check = $(_answerTmpArr[_i]).parent().find('span').attr('class') || ''
                             if (check.indexOf('check_answer') == -1) {
-                                if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                                if (cxai_shouldBlockByGoodStudent()) {
                                     $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
                                 } else {
                                     $(_answerTmpArr[_i]).parent().click()
@@ -2969,7 +3000,7 @@ function cxai_doHomeWork(index, TiMuList) {
                         break
                     } else {
                         cxai_logger(index + 1 + '此题已作答，重做模式下取消旧答案', 'blue')
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).parent().click()
                         }
                         // 不break，继续取消其他已选选项
@@ -3069,7 +3100,7 @@ function cxai_doHomeWork(index, TiMuList) {
                         setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                     } else {
                         if (!_redoLogged) { cxai_logger(index + 1 + '此题已作答，重做模式下重新作答', 'blue'); _redoLogged = true; }
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).parent().click()
                         }
                     }
@@ -3099,7 +3130,7 @@ function cxai_doHomeWork(index, TiMuList) {
                     setTimeout(() => {
                         let check = $(_answerTmpArr[_i]).parent().find('span').attr('class') || ''
                         if (check.indexOf('check_answer') == -1) {
-                            if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                            if (cxai_shouldBlockByGoodStudent()) {
                                 $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
                             } else {
                                 $(_answerTmpArr[_i]).parent().click()
@@ -3366,7 +3397,7 @@ function cxai_missonExam() {
             }
             if (_answeredIdxE0 !== -1 && cxai_isRedoMode()) {
                 cxai_logger('此题已作答，重做模式下重新作答', 'blue')
-                if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                if (!cxai_shouldBlockByGoodStudent()) {
                     $(_answerTmpArr[_answeredIdxE0]).parent().click()
                 }
             }
@@ -3399,7 +3430,7 @@ function cxai_missonExam() {
                     setTimeout(() => {
                         if (($(_answerTmpArr[_i]).parent().find('span').attr('class') || '').indexOf('check_answer') == -1) {
                             //好学生模式,ABCD加粗
-                            if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                            if (cxai_shouldBlockByGoodStudent()) {
                                 $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold');
                             } else {
                                 setTimeout(() => { $(_answerTmpArr[_i]).parent().click() }, 300)
@@ -3428,7 +3459,7 @@ function cxai_missonExam() {
             }
             if (_alreadyAnsweredE1 && cxai_isRedoMode()) {
                 cxai_logger('此题已作答，重做模式下重新作答', 'blue')
-                if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                if (!cxai_shouldBlockByGoodStudent()) {
                     $.each(_answerTmpArr, function (_i2, _t2) {
                         var _cls2 = $(_t2).parent().find('span').attr('class') || ''
                         if (_cls2.indexOf('check_answer') !== -1) {
@@ -3541,7 +3572,7 @@ function cxai_missonExam() {
             }
             if (_answeredIdxE3 !== -1 && cxai_isRedoMode()) {
                 cxai_logger('此题已作答，重做模式下重新作答', 'blue')
-                if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                if (!cxai_shouldBlockByGoodStudent()) {
                     $(_answerTmpArr[_answeredIdxE3]).parent().click()
                 }
             }
@@ -3763,7 +3794,7 @@ function cxai_toNextExam() {
         let $nextbtn = $_examtable.find('.nextDiv a.jb_btn')
         setTimeout(() => {
             $nextbtn.click()
-        }, cxaiCfg.examTurnTime ? 2000 + (Math.floor(Math.random() * 5 + 1) * 1000) : 2000)
+        }, 2000)
     } else {
         cxai_logger('用户设置不自动跳转下一题，请手动点击', 'blue')
     }
@@ -3881,7 +3912,7 @@ function cxai_doExamPreview(index, TiMuList) {
                         alreadyAnswered = 1
                     } else {
                         cxai_logger(prefix + '已作答，重做模式下重新作答', 'blue')
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).parent().click()
                         }
                     }
@@ -3907,7 +3938,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 setTimeout(function () {
                     let cls = $(_answerTmpArr[_i]).parent().find('span').attr('class') || ''
                     if (cls.indexOf('check_answer') === -1) {
-                        if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                        if (cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold')
                         } else {
                             $(_answerTmpArr[_i]).parent().click()
@@ -4034,7 +4065,7 @@ function cxai_doExamPreview(index, TiMuList) {
                         alreadyAnswered = 1
                     } else {
                         cxai_logger(prefix + '已作答，重做模式下重新作答', 'blue')
-                        if (localStorage.getItem('cxaiSetting.goodStudent') !== 'true') {
+                        if (!cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[i]).parent().click()
                         }
                     }
@@ -4058,7 +4089,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 setTimeout(function () {
                     let cls = $(_answerTmpArr[_i]).parent().find('span').attr('class') || ''
                     if (cls.indexOf('check_answer') === -1) {
-                        if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
+                        if (cxai_shouldBlockByGoodStudent()) {
                             $(_answerTmpArr[_i]).parent().find('span').css('font-weight', 'bold')
                         } else {
                             $(_answerTmpArr[_i]).parent().click()
@@ -4225,6 +4256,59 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
         var baseService = 'https://lyck6.cn/scriptService/api';
         var postData = JSON.stringify({ question: questionText, options: options, type: type, location: location.href });
 
+        // icodef.com 兜底题库（格式化类型码）
+        var _icodefTypeMap = { 0: '0', 1: '1', 2: '2', 3: '3' };
+
+        function _requestIcodef() {
+            var icodefType = _icodefTypeMap[type] || '';
+            if (!icodefType) {
+                console.log('[AI智脑Pro题库] icodef.com 不支持题型 type=' + type + '，跳过');
+                return resolve(null);
+            }
+            var icodefParam = 'question=' + encodeURIComponent(questionText) + '&type=' + icodefType;
+            console.log('[AI智脑Pro题库] 请求icodef.com:', icodefParam.slice(0, 100));
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: 'https://cx.icodef.com/wyn-nb?v=4',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                data: icodefParam,
+                timeout: 8000,
+                onload: function (r) {
+                    try {
+                        var res = JSON.parse(r.responseText);
+                        console.log('[AI智脑Pro题库] icodef.com 响应:', JSON.stringify(res).slice(0, 500));
+                        // 兼容多种响应结构
+                        var answers = null;
+                        if (res.data && typeof res.data === 'string' && res.data.trim()) {
+                            answers = [res.data.trim()];
+                        } else if (res.answer && typeof res.answer === 'string' && res.answer.trim()) {
+                            answers = [res.answer.trim()];
+                        } else if (res.result && Array.isArray(res.result) && res.result.length > 0) {
+                            answers = res.result;
+                        } else if (Array.isArray(res) && res.length > 0) {
+                            answers = res;
+                        }
+                        if (answers && answers.length > 0) {
+                            console.log('[AI智脑Pro题库] icodef.com 命中答案:', JSON.stringify(answers).slice(0, 200));
+                            return resolve(answers);
+                        }
+                        console.log('[AI智脑Pro题库] icodef.com 无答案');
+                    } catch (e) {
+                        console.warn('[AI智脑Pro题库] icodef.com 解析失败:', e.message);
+                    }
+                    resolve(null);
+                },
+                onerror: function (e) {
+                    console.warn('[AI智脑Pro题库] icodef.com 网络错误:', e.error || '未知');
+                    resolve(null);
+                },
+                ontimeout: function () {
+                    console.warn('[AI智脑Pro题库] icodef.com 超时(8s)');
+                    resolve(null);
+                }
+            });
+        }
+
         // 内部请求函数：发起指定 URL 的请求，遇到"负载过高"时自动用 Token 付费接口重试
         function _request(url, isPaidRetry) {
             var label = isPaidRetry ? '付费' : '免费';
@@ -4243,24 +4327,24 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                     if (!isPaidRetry && isOverloaded) {
                         if (hasValidToken) {
                             console.log('[AI智脑Pro题库] 免费接口限流(' + (r.status === 429 ? 'HTTP 429' : '负载过高') + ')，Token 有效，切换付费接口重试...');
-                            var paidUrl = baseService + '/autoAnswer/' + token + '?gpt=' + gpt;
+                            var paidUrl = baseService + '/autoAnswer/' + token + '?gpt=' + gpt + '&wannengDisable=1';
                             return _request(paidUrl, true);
                         } else {
                             console.warn('[AI智脑Pro题库] 免费接口限流，但无有效 Token（需10位），跳过');
-                            return resolve(null);
+                            return _requestIcodef();
                         }
                     }
                     // 付费接口仍被限流
                     if (r.status === 429) {
                         console.warn('[AI智脑Pro题库] lyck6.cn(' + label + ') 限流(HTTP 429)');
-                        return resolve(null);
+                        return _requestIcodef();
                     }
                     try {
                         var res = JSON.parse(rawText);
                         console.log('[AI智脑Pro题库] lyck6.cn(' + label + ') 响应:', JSON.stringify(res).slice(0, 500));
                         if (res.code !== 0) {
                             console.warn('[AI智脑Pro题库] lyck6.cn(' + label + ') 返回错误码:', res.code, res.message || res.msg || res.error_msg || '');
-                            return resolve(null);
+                            return _requestIcodef();
                         }
                         // 兼容两种响应结构：res.result.answers 或 res.answer
                         var answers = null;
@@ -4273,25 +4357,25 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                             console.log('[AI智脑Pro题库] lyck6.cn(' + label + ') 命中答案:', JSON.stringify(answers).slice(0, 200));
                             return resolve(answers);
                         }
-                        console.log('[AI智脑Pro题库] lyck6.cn(' + label + ') 无答案');
+                        console.log('[AI智脑Pro题库] lyck6.cn(' + label + ') 无答案，尝试icodef.com');
                     } catch (e) {
                         console.warn('[AI智脑Pro题库] lyck6.cn(' + label + ') 响应解析失败:', e.message, rawText.slice(0, 200));
                     }
-                    resolve(null);
+                    _requestIcodef();
                 },
                 onerror: function (e) {
                     console.warn('[AI智脑Pro题库] lyck6.cn(' + label + ') 网络错误:', e.error || e.statusText || '未知');
-                    resolve(null);
+                    _requestIcodef();
                 },
                 ontimeout: function () {
                     console.warn('[AI智脑Pro题库] lyck6.cn(' + label + ') 请求超时(15s)');
-                    resolve(null);
+                    _requestIcodef();
                 }
             });
         }
 
         // ★ 始终先走免费接口
-        _request(baseService + '/autoFreeAnswer', false);
+        _request(baseService + '/autoFreeAnswer?wannengDisable=1', false);
     });
 }
 
@@ -4319,8 +4403,15 @@ function cxaiIsGarbageAnswer(s) {
         // 如果答案是题目中连续出现的子串（长度>=4），且不是选项文本，判为垃圾
         if (_qCheck.length > 8 && str.length >= 4 && str.length <= 30 && _qCheck.indexOf(str) !== -1) {
             // 排除：答案恰好是某个选项文本的情况
-            console.log('[AI智脑Pro] 检测到答案是题目片段: "' + str + '"');
-            return true;
+            var _opts2 = cxai_currentQuestionMeta.options || [];
+            var _isOpt = _opts2.some(function(o) {
+                var _c = o.replace(/^[A-Z]\s*/, '').replace(/[\n\r\t]/g, '').trim();
+                return _c === str || _c.indexOf(str) !== -1 || str.indexOf(_c) !== -1;
+            });
+            if (!_isOpt) {
+                console.log('[AI智脑Pro] 检测到答案是题目片段: "' + str + '"');
+                return true;
+            }
         }
     }
     // 纯标点/符号（如 "："、"。"、"、" 等不是有效答案）
@@ -4331,16 +4422,24 @@ function cxaiIsGarbageAnswer(s) {
     if (/^[—\-–]?\s*[A-Za-z]\s*[.:：]?\s*(正确|错误|对|错|是|否|√|×)\s*$/.test(str)) return true;
     // 过短且不含有效内容（2个字符以内，且不是有意义的单字答案）
     if (str.length <= 2 && !/^[\u4e00-\u9fa5a-zA-Z0-9]+$/.test(str)) return true;
-    // ★ 题目回显检测：AI返回了题目文本的片段而非答案
-    if (cxai_currentQuestionMeta && cxai_currentQuestionMeta.questionText) {
-        var _qText = cxai_currentQuestionMeta.questionText.trim();
-        // 检查答案是否与题目有大量重叠（包含题目中连续15字以上的片段）
-        if (_qText.length > 15 && str.length > 10) {
-            for (var qi = 0; qi <= _qText.length - 15; qi++) {
-                var _frag = _qText.substring(qi, qi + 15);
-                if (str.indexOf(_frag) !== -1) {
-                    console.log('[AI智脑Pro] 检测到答案回显题目片段: "' + _frag + '"');
-                    return true;
+    // ★ 题目回显检测：AI返回了题目文本的片段而非答案（短答案/题库答案跳过）
+    if (str.indexOf('#') === -1 && str.length > 20 && cxai_currentQuestionMeta && cxai_currentQuestionMeta.questionText) {
+        // 如果答案与某个选项匹配，说明是正确答案而非回显
+        var _opts = cxai_currentQuestionMeta.options || [];
+        var _matched = _opts.some(function(opt) {
+            var _clean = opt.replace(/^[A-Z]\s*/, '').replace(/[\n\r\t]/g, '').trim();
+            return _clean === str || str.indexOf(_clean) !== -1 || _clean.indexOf(str) !== -1;
+        });
+        if (!_matched) {
+            var _qText = cxai_currentQuestionMeta.questionText.trim();
+            // 检查答案是否与题目有大量重叠（包含题目中连续15字以上的片段）
+            if (_qText.length > 15 && str.length > 10) {
+                for (var qi = 0; qi <= _qText.length - 15; qi++) {
+                    var _frag = _qText.substring(qi, qi + 15);
+                    if (str.indexOf(_frag) !== -1) {
+                        console.log('[AI智脑Pro] 检测到答案回显题目片段: "' + _frag + '"');
+                        return true;
+                    }
                 }
             }
         }
@@ -4354,6 +4453,10 @@ function cxaiIsGarbageAnswer(s) {
 function cxaiProcessBankAnswer(answerList, optionsArr, type) {
     if (!answerList || answerList.length === 0) { console.log('[AI智脑Pro题库] 答案列表为空'); return null; }
     console.log('[AI智脑Pro题库] 处理答案 - 题型:', type, '| 答案:', JSON.stringify(answerList), '| 选项:', JSON.stringify(optionsArr));
+    // ★ 将选项文本存入 meta，供回显检测识别正确答案
+    if (cxai_currentQuestionMeta && optionsArr && optionsArr.length > 0) {
+        cxai_currentQuestionMeta.options = optionsArr;
+    }
 
     // 填空题/主观题/问答题/名词解释/论述题：直接返回答案文本
     if (type === 2 || type === 4 || type === 5 || type === 6 || type === 7) {
@@ -4387,7 +4490,8 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
         var _aStr = String(a);
         if (cxai_currentQuestionMeta && (cxai_currentQuestionMeta.typeName === '多选题' || cxai_currentQuestionMeta.typeName === '多项选择题') && _aStr.length > 2) {
             // 合法格式: 纯字母如 "AB"、"A,B,C"、"A、B、D"、数字索引如 "0|2|3"
-            var _isLegalMulti = /^[A-Ga-g\s,，、|;；]+$/.test(_aStr) || /^\d[\d\s|,;，、和]+$/.test(_aStr) || /^\d+$/.test(_aStr);
+            // ★ icodef.com 格式: 选项文本用 # 分隔（也合法）
+            var _isLegalMulti = /^[A-Ga-g\s,，、|;；]+$/.test(_aStr) || /^\d[\d\s|,;，、和]+$/.test(_aStr) || /^\d+$/.test(_aStr) || _aStr.indexOf('#') !== -1;
             if (!_isLegalMulti) {
                 console.log('[AI智脑Pro] 多选题答案格式不合法，判为垃圾: "' + _aStr.slice(0, 40) + '"');
                 return false; // 移除不合法格式
@@ -4417,6 +4521,23 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
             targetIndices.push(ans.charCodeAt(0) - 65);
             continue;
         }
+        // ★ icodef.com 格式：选项文本用 # 分隔（如 "选项A文本#选项B文本"）
+        if (ans.indexOf('#') !== -1 && optionsArr && optionsArr.length > 0) {
+            var parts = ans.split('#');
+            for (var pi = 0; pi < parts.length; pi++) {
+                var partText = parts[pi].trim();
+                if (!partText) continue;
+                var partNorm = partText.toLowerCase().replace(/[\s　]+/g, '');
+                for (var pj = 0; pj < optionsArr.length; pj++) {
+                    var optNorm = optionsArr[pj].replace(/^[A-Z]\s*/, '').toLowerCase().replace(/[\s　]+/g, '');
+                    if (optNorm === partNorm || optNorm.indexOf(partNorm) !== -1 || partNorm.indexOf(optNorm) !== -1) {
+                        if (targetIndices.indexOf(pj) === -1) targetIndices.push(pj);
+                        break;
+                    }
+                }
+            }
+            if (targetIndices.length > 0) continue;
+        }
         // 数字字符串（如 "2"）也当索引
         if (/^\d+$/.test(ans)) {
             var numIdx = parseInt(ans, 10);
@@ -4428,8 +4549,10 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type) {
         // 文本精确匹配
         var found = false;
         if (optionsArr) {
+            var _ansNorm = ans.toLowerCase().replace(/[\s　]+/g, '');
             for (var j = 0; j < optionsArr.length; j++) {
-                if (optionsArr[j] === ans || optionsArr[j].indexOf(ans) !== -1 || ans.indexOf(optionsArr[j]) !== -1) {
+                var _optNorm = optionsArr[j].replace(/^[A-Z]\s*/, '').toLowerCase().replace(/[\s　]+/g, '');
+                if (_optNorm === _ansNorm || _optNorm.indexOf(_ansNorm) !== -1 || _ansNorm.indexOf(_optNorm) !== -1) {
                     targetIndices.push(j);
                     found = true;
                     break;
@@ -4491,16 +4614,14 @@ function cxai_getAnswer(_t, _q, retryCount = 0) {
         let requestCompleted = false;  // 标记请求是否已完成
         let longWaitTimer = null;  // 长时间等待定时器
 
-        // 同步搜题间隔到答题间隔：让 cxaiCfg.time 与 UI 设置的 reqIntervalTime 保持一致
-        var _syncedSec = parseInt(localStorage.getItem('cxaiSetting.reqIntervalTime'), 10);
-        if (isFinite(_syncedSec) && _syncedSec >= 0) {
-            cxaiCfg.time = Math.min(60000, _syncedSec * 1000);
-        }
-
         // 按用户设置的搜题间隔节流：计算本次需要等待的 ms，并预订下一次可发起时间
         let _intervalSec = parseInt(localStorage.getItem('cxaiSetting.reqIntervalTime'), 10)
         if (!isFinite(_intervalSec) || _intervalSec < 0) _intervalSec = (cxaiCfg && cxaiCfg.reqIntervalTime) || 0
         let _intervalMs = Math.min(60000, _intervalSec * 1000)
+        // ★ 同步搜题间隔到题目处理间隔（仅当用户明确设置了 > 0 时）
+        if (_intervalSec > 0) {
+            cxaiCfg.time = Math.min(60000, _intervalSec * 1000);
+        }
         let _nowTs = Date.now()
         let _waitMs = Math.max(0, _cxaiNextAiAllowedAt - _nowTs)
         // 预订下一次最早可发起时刻：当前/解锁时间 + 间隔
@@ -4513,18 +4634,20 @@ function cxai_getAnswer(_t, _q, retryCount = 0) {
         longWaitTimer = setTimeout(() => {
             if (!requestCompleted) {
                 requestCompleted = true;  // 标记为已完成，避免处理旧响应
-                if (retryCount >= 3) {
-                    // 最多重试3次，避免网络不可用时无限循环
-                    cxai_updateLogEntry($thinkingLog, '请求超过5分钟未响应，已重试' + (retryCount + 1) + '次仍失败，跳过此题', 'red')
+                // 简答题/主观题只重试1次（AI响应慢时避免等待过久）
+                var maxRetry = (_t === 4 || _t === 5 || _t === 6) ? 1 : 2;
+                if (retryCount >= maxRetry) {
+                    // 超过最大重试次数，跳过此题
+                    cxai_updateLogEntry($thinkingLog, '请求超时已重试' + (retryCount + 1) + '次仍失败，跳过此题', 'red')
                     reject({ 'c': 0 })
                 } else {
                     // 原地把 "AI 思考中" 行替换为重试提示, 不再追加新日志
-                    cxai_updateLogEntry($thinkingLog, '请求超过5分钟未响应，正在重新发起请求...（第' + (retryCount + 1) + '次重试）', 'orange')
+                    cxai_updateLogEntry($thinkingLog, '请求超时未响应，正在重试...（第' + (retryCount + 1) + '次重试）', 'orange')
                     // 重新发起请求(递归调用会创建新的 "思考中" 行)
                     cxai_getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject)
                 }
             }
-        }, 300000 + _waitMs);  // 5分钟 = 300000毫秒
+        }, 90000 + _waitMs);  // 90秒 = 90000毫秒
 
         setTimeout(function () {
         if (requestCompleted) return; // 若已因 5 分钟超时进入重试，则不再发送本次请求
@@ -4731,7 +4854,6 @@ function cxai_getAnswer(_t, _q, retryCount = 0) {
             requestCompleted = true;
             clearTimeout(longWaitTimer);
             cxai_updateLogEntry($thinkingLog, msg, 'red')
-            if (code !== 403 && code !== 500) localStorage.setItem('cxaiSetting.sub', false)
             reject({ 'c': code || 0 })
         }
 
@@ -4921,19 +5043,21 @@ function cxai_getAnswer(_t, _q, retryCount = 0) {
 //  任务切换、字符串清洗、字体解密、粘贴绕过
 // ═══════════════════════════════════════════════════════════════════════════════
 
+var _cxaiDesktopSkipped = 0;
 function cxai_doWork(index, doms, dom) {
     $frame_c = $(dom).contents();
     let $CyHtml = $frame_c.find('.CeYan')
     let TiMuList = $CyHtml.find('.TiMu')
     $subBtn = $frame_c.find(".ZY_sub").find(".btnSubmit");
     $saveBtn = $frame_c.find(".ZY_sub").find(".btnSave");
+    _cxaiDesktopSkipped = 0;
     cxai_startDoWork(index, doms, 0, TiMuList)
 }
 
 
 function cxai_startDoWork(index, doms, c, TiMuList) {
     if (c == TiMuList.length) {
-        if (localStorage.getItem('cxaiSetting.sub') === 'true') {
+        if (localStorage.getItem('cxaiSetting.sub') === 'true' && _cxaiDesktopSkipped === 0) {
             cxai_logger('测验处理完成，准备自动提交。', 'green')
             setTimeout(() => {
                 $subBtn.click()
@@ -4958,7 +5082,16 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 }, 3000)
             }, 5000)
         } else {
-            cxai_logger('测验处理完成，存在无答案题目或者用户设置不提交。', 'red')
+            cxai_logger(_cxaiDesktopSkipped > 0 ? '存在 ' + _cxaiDesktopSkipped + ' 道未答题目，自动保存！' : '测验处理完成，自动保存！', 'green')
+            setTimeout(() => {
+                $saveBtn.click()
+                setTimeout(() => {
+                    cxai_logger('保存成功，准备切换下一个任务。', 'green')
+                    cxai_mlist.splice(0, 1)
+                    _domList.splice(0, 1)
+                    setTimeout(() => { cxai_startDoCyWork(index + 1, doms) }, 3000)
+                }, 3000)
+            }, 5000)
         }
         return
     }
@@ -5049,6 +5182,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 if (_i === -1) { _i = cxai_findBestFuzzyMatch(_a, agrs, undefined, true); }
                 if (_i === -1) { _i = cxaiFindAnswerIndex(_a, agrs); }
                 if (_i == -1) {
+                    _cxaiDesktopSkipped++;
                     cxai_logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
                 } else {
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
@@ -5059,6 +5193,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 }
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
+                _cxaiDesktopSkipped++;
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
@@ -5108,8 +5243,10 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 let _onclickAttr = $(TiMuList[c]).find('.Zy_ulTop li:nth-child(1)').attr('onclick') || '';
                 let id = _onclickAttr ? cxai_getStr(_onclickAttr, 'addcheck(', ');').replace('(', '').replace(')', '') : '';
                 if (_matchedIndices.length === 0) {
+                    _cxaiDesktopSkipped++;
                     cxai_logger('AI未能匹配任何选项，请手动选择', 'red')
                 } else if (_a.length <= 0) {
+                    _cxaiDesktopSkipped++;
                     cxai_logger('AI无法完美匹配正确答案,请手动选择，跳过', 'red')
                     // cxaiCfg.sub = 0
                 } else {
@@ -5117,6 +5254,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 }
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
+                _cxaiDesktopSkipped++;
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
@@ -5139,6 +5277,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 })
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
+                _cxaiDesktopSkipped++;
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
@@ -5158,12 +5297,14 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 }
                 let judgeResult = cxai_parseJudgeAnswer(agrs)
                 if (judgeResult === null) {
+                    _cxaiDesktopSkipped++;
                     cxai_logger("答案匹配出错，跳过", "red");
                     setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
                     return
                 }
                 let _i = cxai_findJudgeOptionIndex(_a, judgeResult === 'true');
                 if (_i == -1) {
+                    _cxaiDesktopSkipped++;
                     cxai_logger("未匹配到正确答案，跳过", "red");
                 } else {
                     if (localStorage.getItem('cxaiSetting.goodStudent') === 'true') {
@@ -5176,6 +5317,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                     cxai_startDoWork(index, doms, c + 1, TiMuList);
                 }, cxaiCfg.time);
             }).catch((agrs) => {
+                _cxaiDesktopSkipped++;
                 setTimeout(() => {
                     cxai_startDoWork(index, doms, c + 1, TiMuList);
                 }, cxaiCfg.time);
@@ -5186,6 +5328,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
             let _textareaLista = $(TiMuList[c]).find('.Zy_ulTk .XztiHover1')
             cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 if (agrs == '暂无答案') {
+                    _cxaiDesktopSkipped++;
                     // cxaiCfg.sub = 0
                 }
                 let _answerList = agrs.split("|")
@@ -5197,6 +5340,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 })
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             }).catch((agrs) => {
+                _cxaiDesktopSkipped++;
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             })
             break
@@ -5270,22 +5414,38 @@ function cxai_decryptFont() {
 
 
 function _cxaiFetchFontTable($tip) {
-    GM_xmlhttpRequest({
-        method: 'GET',
-        url: 'https://116611.xyz/table.json?_=' + Date.now(),
-        timeout: 15000,
-        onload: function (r) {
-            if (r.status === 200 && r.responseText) {
-                _cxaiFontTableCache = r.responseText;
-                console.log('[AI智脑Pro] 字体映射表直接获取成功，重新执行解密...');
-                try { cxai_decryptFont(); } catch (e) { console.warn('[AI智脑Pro] 重试解密失败:', e); }
-            } else {
-                console.warn('[AI智脑Pro] 字体映射表直接获取失败: HTTP ' + r.status);
-            }
-        },
-        onerror: function () { console.warn('[AI智脑Pro] 字体映射表网络请求失败'); },
-        ontimeout: function () { console.warn('[AI智脑Pro] 字体映射表请求超时'); }
-    });
+    var _fontTableUrls = [
+        'https://116611.xyz/table.json?_=' + Date.now(),
+        'https://cdn.lyck6.cn/ttf/1.0/table.json?_=' + Date.now(),
+        'https://www.forestpolice.org/ttf/2.0/table.json?_=' + Date.now()
+    ];
+    var _tryIdx = 0;
+    function _tryNext() {
+        if (_tryIdx >= _fontTableUrls.length) {
+            console.warn('[AI智脑Pro] 所有字体映射表源均失败');
+            return;
+        }
+        var url = _fontTableUrls[_tryIdx++];
+        console.log('[AI智脑Pro] 尝试字体映射表源: ' + url.split('?')[0]);
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: url,
+            timeout: 10000,
+            onload: function (r) {
+                if (r.status === 200 && r.responseText && r.responseText.length > 100) {
+                    _cxaiFontTableCache = r.responseText;
+                    console.log('[AI智脑Pro] 字体映射表获取成功，重新执行解密...');
+                    try { cxai_decryptFont(); } catch (e) { console.warn('[AI智脑Pro] 重试解密失败:', e); }
+                } else {
+                    console.warn('[AI智脑Pro] 字体映射表源失败(HTTP ' + r.status + ')，尝试下一个...');
+                    _tryNext();
+                }
+            },
+            onerror: function () { console.warn('[AI智脑Pro] 字体映射表网络失败，尝试下一个...'); _tryNext(); },
+            ontimeout: function () { console.warn('[AI智脑Pro] 字体映射表超时，尝试下一个...'); _tryNext(); }
+        });
+    }
+    _tryNext();
 }
 
 function cxai_base64ToUint8Array(base64) {
@@ -5298,12 +5458,20 @@ function cxai_base64ToUint8Array(base64) {
 }
 
 
-function cxai_waitForJQueryElement(selector) {
-    return new Promise(function (resolve) {
+function cxai_waitForJQueryElement(selector, timeout) {
+    timeout = timeout || 30000; // 默认30秒超时
+    return new Promise(function (resolve, reject) {
+        if ($(selector).length > 0) return resolve();
+        var elapsed = 0;
         var interval = setInterval(function () {
+            elapsed += 500;
             if ($(selector).length > 0) {
                 clearInterval(interval);
                 resolve();
+            } else if (elapsed >= timeout) {
+                clearInterval(interval);
+                cxai_logger('等待元素超时: ' + selector, 'red');
+                reject(new Error('waitForElement timeout: ' + selector));
             }
         }, 500);
     });
