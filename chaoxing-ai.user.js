@@ -3240,6 +3240,7 @@ function cxai_showBox() {
                         clearTimeout(safetyTimer);
                         updateBtn.classList.remove('spinning');
                         if (hasUpdate) return; // cxai_showUpdateDialog 已弹出
+                        if (typeof Swal !== 'undefined' && Swal.isVisible()) return; // 防重复
                         if (errMsg) {
                             if (typeof Swal !== 'undefined') {
                                 Swal.fire({
@@ -9566,43 +9567,75 @@ function _cxaiSemverCompare(a, b) {
 }
 
 function cxai_checkUpdate(force, onComplete) {
+    // 用 localStorage 做跨 iframe/标签页共享锁（15秒，覆盖请求超时）
+    var lockKey = 'cxaiSetting._updateLock';
     var now = Date.now();
+    var lockTime = parseInt(localStorage.getItem(lockKey) || '0', 10);
+    if (now - lockTime < 15000) {
+        // 锁拦截：2秒内静默（说明上一个请求正在进行，等待即可）
+        // 超过2秒才提示（可能上一个请求卡住了）
+        if (now - lockTime > 2000) {
+            if (typeof onComplete === 'function') onComplete(false, null, '正在检查中，请稍候');
+        }
+        return;
+    }
+    localStorage.setItem(lockKey, String(now));
+
     var last = parseInt(localStorage.getItem('cxaiSetting.lastUpdateCheck') || '0', 10);
-    if (!force && (now - last) < _CXAI_CHECK_INTERVAL) return;
+    if (!force && (now - last) < _CXAI_CHECK_INTERVAL) {
+        localStorage.removeItem(lockKey);
+        return;
+    }
     localStorage.setItem('cxaiSetting.lastUpdateCheck', String(now));
+
+    function _releaseLock() { try { localStorage.removeItem(lockKey); } catch(e) {} }
 
     GM_xmlhttpRequest({
         method: 'GET',
         url: _CXAI_UPDATE_URL,
-        timeout: 15000, // 15秒超时
+        timeout: 15000,
         onload: function(r) {
-            if (r.status < 200 || r.status >= 300) {
-                if (typeof onComplete === 'function') onComplete(false, null, 'HTTP ' + r.status);
-                return;
-            }
-            var m = r.responseText.match(/\/\/ @version\s+(\S+)/);
-            if (!m) {
-                if (typeof onComplete === 'function') onComplete(false, null, '无法解析版本');
-                return;
-            }
-            var remote = m[1];
-            if (_cxaiSemverCompare(remote, _CXAI_CUR_VER) > 0) {
-                cxai_showUpdateDialog(remote);
-                if (typeof onComplete === 'function') onComplete(true, remote);
-            } else {
-                if (typeof onComplete === 'function') onComplete(false, remote);
+            try {
+                if (r.status < 200 || r.status >= 300) {
+                    if (typeof onComplete === 'function') onComplete(false, null, 'HTTP ' + r.status);
+                    return;
+                }
+                var m = r.responseText.match(/\/\/ @version\s+(\S+)/);
+                if (!m) {
+                    if (typeof onComplete === 'function') onComplete(false, null, '无法解析版本');
+                    return;
+                }
+                var remote = m[1];
+                if (_cxaiSemverCompare(remote, _CXAI_CUR_VER) > 0) {
+                    cxai_showUpdateDialog(remote);
+                    if (typeof onComplete === 'function') onComplete(true, remote);
+                } else {
+                    if (typeof onComplete === 'function') onComplete(false, remote);
+                }
+            } finally {
+                _releaseLock();
             }
         },
         onerror: function(err) {
-            if (typeof onComplete === 'function') onComplete(false, null, '网络错误');
+            try {
+                if (typeof onComplete === 'function') onComplete(false, null, '网络错误');
+            } finally {
+                _releaseLock();
+            }
         },
         ontimeout: function() {
-            if (typeof onComplete === 'function') onComplete(false, null, '请求超时');
+            try {
+                if (typeof onComplete === 'function') onComplete(false, null, '请求超时');
+            } finally {
+                _releaseLock();
+            }
         }
     });
 }
 
 function cxai_showUpdateDialog(remoteVer) {
+    // 防重复弹窗：已有 Swal 在显示则跳过
+    if (typeof Swal !== 'undefined' && Swal.isVisible()) return;
     if (typeof Swal === 'undefined') {
         // Swal 不可用时 fallback 到简单弹窗
         if (confirm('[AI智脑Pro] 发现新版本 ' + remoteVer + '（当前 ' + _CXAI_CUR_VER + '），是否前往更新？')) {
@@ -9648,7 +9681,28 @@ try {
     if (_isTopForUpdate) cxai_checkUpdate(false);
 } catch(e) {}
 
-GM_registerMenuCommand("检查更新", function() { cxai_checkUpdate(true); });
+GM_registerMenuCommand("检查更新", function() {
+    var _curVer = (typeof unsafeWindow !== 'undefined' && unsafeWindow._CXAI_CUR_VER)
+                || (typeof window !== 'undefined' && window._CXAI_CUR_VER)
+                || '未知';
+    cxai_checkUpdate(true, function(hasUpdate, remoteVer, errMsg) {
+        if (hasUpdate) return; // cxai_showUpdateDialog 已弹出
+        if (typeof Swal !== 'undefined' && Swal.isVisible()) return; // 防重复
+        if (errMsg) {
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ title: '检查更新失败', text: errMsg + '（GitHub 在国内访问不稳定）', icon: 'error', confirmButtonText: '好的', confirmButtonColor: '#e74c3c' });
+            } else {
+                alert('检查更新失败：' + errMsg);
+            }
+        } else {
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({ title: '已是最新版本', text: '当前版本 ' + _curVer + '（最新 ' + remoteVer + '）', icon: 'success', confirmButtonText: '好的', confirmButtonColor: '#4CAF50' });
+            } else {
+                alert('已是最新版本 v' + _curVer);
+            }
+        }
+    });
+});
 
 
 // AI 智脑 Pro x 划词搜题 + 截图搜题（独立模块）
