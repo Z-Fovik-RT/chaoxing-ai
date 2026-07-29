@@ -1,18 +1,22 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.2.
+// @version      1.2.7
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
 // @supportURL   https://github.com/Z-Fovik-RT/chaoxing-ai/issues
 // @icon         https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/icon.png
 // @tag          学习通
+// @tag          自动答题
+// @tag          刷课
+// @tag          题库
+// @tag          考试辅助
 // @tag          模型自定义API
 // @tag          AI答题
 // @tag          学习辅助
-// @antifeature  payment AI功能需要用户自备模型API Key才能使用
-// @antifeature  membership 第三方题库付费Token需联系题库作者获取
+// @antifeature  payment AI功能需用户自备API Key（费用自担）
+// @antifeature  membership 题库功能需付费Token，由题库作者发放
 // @match        *://*.chaoxing.com/*
 // @match        *://*.edu.cn/*
 // @connect      *
@@ -26,7 +30,9 @@
 // @grant        GM_setClipboard
 // @grant        GM_deleteValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_openInTab
 // @compatible    chrome ScriptCat / Tampermonkey
+// @compatible    edge ScriptCat / Tampermonkey
 // @compatible    firefox ScriptCat / Tampermonkey
 // @require      https://scriptcat.org/lib/668/1.0/TyprMd5.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/sweetalert2/11.1.0/sweetalert2.all.min.js
@@ -225,7 +231,6 @@ function cxai_escapeHtml(str) {
 
 
 // =============== BZM 题库（高质量题库）集成 ===============
-// 作为第三个兜底题库来源（icodef.com → BZM题库）
 // 注意：BZM 需要 API Key，请先在面板获取
 
 var BZM_API_SERVERS = [
@@ -928,7 +933,7 @@ var cxai_currentQuestionMeta = null;
 var _cxaiNextAiAllowedAt = 0;
 // 恢复任务时用的防抖定时器
 var _cxaiResumeTimer = null;
-// ==================== 复制题目模块（从 chaoxin.js 移植） ====================
+// ==================== 复制题目功能模块 ====================
 (function cxaiInitCopyAllQuestions() {
     var _copyModalPaths = ['/mycourse/', '/course/', '/knowledge/', '/multimedia/', '/video/', '/work/', '/exam/', '/ztnodedetailcontroller/', '/read/', '/mooc1/', '/mooc2/', '/mooc-ans/'];
     function _isCopyModalPage() {
@@ -2060,7 +2065,7 @@ try {
     }
 } catch (_) { /* empty */ }
 
-// F9 快捷键显示/隐藏面板（来自 GPTJs v3.1.5）
+// F9 快捷键显示/隐藏面板（）
 function cxaiToggleBoxVisibility() {
     var root = document.getElementById('cxai-float-root');
     // 如果当前在 iframe 中，尝试在顶层文档中查找
@@ -2159,7 +2164,7 @@ if (_l.pathname.includes('/mycourse/studentstudy')) {
         }
     }, 2000);
 
-    // 用计数器 + URL 跟踪做二次确认后自动跳转下一章节（来自 GPTJs v3.1.5）
+    // 用计数器 + URL 跟踪做二次确认后自动跳转下一章节（）
     var _cxaiBlankSectionChecks = 0;
     var _cxaiLastBlankSectionUrl = '';
     var _cxaiBlankSkipping = false;
@@ -2853,6 +2858,10 @@ function cxai_showBox() {
             /* Header Theme Toggle */
             .cxai-theme-toggle-btn{width:26px;height:26px;border-radius:6px;border:none;background:rgba(255,255,255,.04);color:rgba(226,232,240,.6);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
             .cxai-theme-toggle-btn:hover{background:rgba(255,255,255,.08);color:rgba(226,232,240,.9)}
+            /* Header Update Button */
+            .cxai-update-btn{width:26px;height:26px;border-radius:6px;border:none;background:rgba(255,255,255,.04);color:rgba(226,232,240,.6);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+            .cxai-update-btn:hover{background:rgba(255,255,255,.08);color:rgba(226,232,240,.9)}
+            .cxai-update-btn.spinning .cxai-update-icon{display:inline-block;animation:cxai-spin 1s linear infinite}
             /* Theme Popover */
             .cxai-theme-popover{position:absolute;top:42px;right:42px;background:rgba(20,20,32,.98);backdrop-filter:blur(24px) saturate(200%);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:6px;display:none;flex-direction:column;gap:2px;z-index:100002;box-shadow:0 12px 40px rgba(0,0,0,.5);min-width:90px}
             .cxai-theme-popover.open{display:flex}
@@ -2864,6 +2873,8 @@ function cxai_showBox() {
             [data-cxai-theme-light] .cxai-theme-popover{background:rgba(255,255,255,.98);border-color:rgba(0,0,0,.08);box-shadow:0 12px 40px rgba(0,0,0,.12)}
             [data-cxai-theme-light] .cxai-theme-toggle-btn{background:rgba(0,0,0,.04);color:rgba(30,30,40,.6)}
             [data-cxai-theme-light] .cxai-theme-toggle-btn:hover{background:rgba(0,0,0,.07);color:rgba(30,30,40,.85)}
+            [data-cxai-theme-light] .cxai-update-btn{background:rgba(0,0,0,.04);color:rgba(30,30,40,.6)}
+            [data-cxai-theme-light] .cxai-update-btn:hover{background:rgba(0,0,0,.07);color:rgba(30,30,40,.85)}
             [data-cxai-theme-light] .cxai-theme-popover-btn{color:rgba(30,30,40,.75)}
             [data-cxai-theme-light] .cxai-theme-popover-btn:hover{background:rgba(0,0,0,.05);color:rgba(30,30,40,.9)}
             [data-cxai-theme-light] .cxai-theme-popover-btn.active{color:#6366f1;background:rgba(99,102,241,.08)}
@@ -3001,6 +3012,7 @@ function cxai_showBox() {
                         <span class="cxai-side-title">AI 智脑 Pro</span>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <button class="cxai-theme-toggle-btn" id="cxai-theme-toggle-btn" title="切换主题">🌓</button>
+                            <button class="cxai-update-btn" id="cxai-update-btn" title="检查更新"><span class="cxai-update-icon">🔄</span></button>
                             <button class="cxai-side-close" id="cxai-close-panel">&times;</button>
                         </div>
                     </div>
@@ -3198,6 +3210,62 @@ function cxai_showBox() {
                 closeBtn.addEventListener('click', function (e) {
                     e.stopPropagation();
                     closePanel();
+                });
+            }
+
+            // 检查更新按钮（动态查找 cxai_checkUpdate，因定义在主 IIFE 外部、绑定时尚未暴露）
+            var updateBtn = _cxaiFindEl('cxai-update-btn');
+            if (updateBtn) {
+                updateBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    // 点击时动态查找，此时脚本已全部执行完毕
+                    var fn = (typeof unsafeWindow !== 'undefined' && unsafeWindow.cxai_checkUpdate)
+                          || (typeof window !== 'undefined' && window.cxai_checkUpdate);
+                    if (!fn) {
+                        if (typeof Swal !== 'undefined') {
+                            Swal.fire({ title: '检查更新功能尚未加载', icon: 'warning', confirmButtonText: '好的' });
+                        } else {
+                            alert('检查更新功能尚未加载');
+                        }
+                        return;
+                    }
+                    var curVer = (typeof unsafeWindow !== 'undefined' && unsafeWindow._CXAI_CUR_VER)
+                              || (typeof window !== 'undefined' && window._CXAI_CUR_VER)
+                              || '未知';
+                    updateBtn.classList.add('spinning');
+                    var safetyTimer = setTimeout(function() {
+                        updateBtn.classList.remove('spinning');
+                    }, 20000);
+                    fn(true, function(hasUpdate, remoteVer, errMsg) {
+                        clearTimeout(safetyTimer);
+                        updateBtn.classList.remove('spinning');
+                        if (hasUpdate) return; // cxai_showUpdateDialog 已弹出
+                        if (errMsg) {
+                            if (typeof Swal !== 'undefined') {
+                                Swal.fire({
+                                    title: '检查更新失败',
+                                    text: errMsg + '（可能是网络问题，GitHub 在国内访问不稳定）',
+                                    icon: 'error',
+                                    confirmButtonText: '好的',
+                                    confirmButtonColor: '#e74c3c'
+                                });
+                            } else {
+                                alert('检查更新失败：' + errMsg);
+                            }
+                        } else {
+                            if (typeof Swal !== 'undefined') {
+                                Swal.fire({
+                                    title: '已是最新版本',
+                                    text: '当前版本 ' + curVer + '（最新 ' + remoteVer + '）',
+                                    icon: 'success',
+                                    confirmButtonText: '好的',
+                                    confirmButtonColor: '#4CAF50'
+                                });
+                            } else {
+                                alert('已是最新版本 v' + curVer);
+                            }
+                        }
+                    });
                 });
             }
 
@@ -5060,7 +5128,7 @@ function cxai_missonVideo(dom, obj) {
 
 
 
-    // 视频弹题处理（来自 GPTJs v3.1.5）
+    // 视频弹题处理（）
     function cxai_handleVideoQuiz(doc) {
         var container = doc.querySelector('.ans-videoquiz');
         if (!container) return false;
@@ -5272,7 +5340,7 @@ function cxai_missonRead(dom, obj) {
 }
 
 
-// 知识图谱任务处理（来自 GPTJs v3.1.5）
+// 知识图谱任务处理（）
 function cxai_missonKnowledgeGraph(dom, obj) {
     var name = (obj['property'] && obj['property']['name']) || '知识图谱';
     cxai_logger('知识图谱：' + name + '，检测是否已完成', 'blue');
@@ -6157,10 +6225,7 @@ function cxai_startDoCyWork(index, doms) {
 
 
 function cxai_getElement(parent, selector, timeout = 0) {
-    /**
-     * Author   cxxjackie
-     * From     https://bbs.tampermonkey.net.cn
-     */
+    
     return new Promise(resolve => {
         var result = parent.querySelector(selector);
         if (result) return resolve(result);
@@ -9481,11 +9546,109 @@ try {
 // 通用文字规范化（全角→半角、引号统一、句号替换、去末尾标点、合并空白）
 // 与常见题库 formatString 对齐，提升题库匹配率
 
-
-
 }
 })();
 } catch(e) { console.warn('[AI智脑Pro] 主脚本异常已捕获:', e.message); }
+
+// ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
+var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.2.7';
+var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
+
+function _cxaiSemverCompare(a, b) {
+    var pa = a.split('.'), pb = b.split('.');
+    for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+        var na = parseInt(pa[i] || '0', 10), nb = parseInt(pb[i] || '0', 10);
+        if (na > nb) return 1;
+        if (na < nb) return -1;
+    }
+    return 0;
+}
+
+function cxai_checkUpdate(force, onComplete) {
+    var now = Date.now();
+    var last = parseInt(localStorage.getItem('cxaiSetting.lastUpdateCheck') || '0', 10);
+    if (!force && (now - last) < _CXAI_CHECK_INTERVAL) return;
+    localStorage.setItem('cxaiSetting.lastUpdateCheck', String(now));
+
+    GM_xmlhttpRequest({
+        method: 'GET',
+        url: _CXAI_UPDATE_URL,
+        timeout: 15000, // 15秒超时
+        onload: function(r) {
+            if (r.status < 200 || r.status >= 300) {
+                if (typeof onComplete === 'function') onComplete(false, null, 'HTTP ' + r.status);
+                return;
+            }
+            var m = r.responseText.match(/\/\/ @version\s+(\S+)/);
+            if (!m) {
+                if (typeof onComplete === 'function') onComplete(false, null, '无法解析版本');
+                return;
+            }
+            var remote = m[1];
+            if (_cxaiSemverCompare(remote, _CXAI_CUR_VER) > 0) {
+                cxai_showUpdateDialog(remote);
+                if (typeof onComplete === 'function') onComplete(true, remote);
+            } else {
+                if (typeof onComplete === 'function') onComplete(false, remote);
+            }
+        },
+        onerror: function(err) {
+            if (typeof onComplete === 'function') onComplete(false, null, '网络错误');
+        },
+        ontimeout: function() {
+            if (typeof onComplete === 'function') onComplete(false, null, '请求超时');
+        }
+    });
+}
+
+function cxai_showUpdateDialog(remoteVer) {
+    if (typeof Swal === 'undefined') {
+        // Swal 不可用时 fallback 到简单弹窗
+        if (confirm('[AI智脑Pro] 发现新版本 ' + remoteVer + '（当前 ' + _CXAI_CUR_VER + '），是否前往更新？')) {
+            GM_openInTab(_CXAI_UPDATE_URL, { active: true });
+        }
+        return;
+    }
+    Swal.fire({
+        title: '发现新版本',
+        html: '<div style="text-align:left;padding:0 8px;">' +
+              '<p style="margin:4px 0;">当前版本：<b>' + _CXAI_CUR_VER + '</b></p>' +
+              '<p style="margin:4px 0;">最新版本：<b style="color:#4CAF50;">' + remoteVer + '</b></p>' +
+              '<p style="font-size:12px;color:#888;margin-top:8px;">建议更新以获取最新功能与修复</p>' +
+              '</div>',
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: '立即更新',
+        cancelButtonText: '稍后提醒',
+        confirmButtonColor: '#4CAF50',
+        cancelButtonColor: '#aaa',
+    }).then(function(res) {
+        if (res.isConfirmed) {
+            GM_openInTab(_CXAI_UPDATE_URL, { active: true });
+        }
+    });
+}
+
+// 暴露到 unsafeWindow / window，确保面板按钮 handler 能调用
+try {
+    if (typeof unsafeWindow !== 'undefined') {
+        unsafeWindow.cxai_checkUpdate = cxai_checkUpdate;
+        unsafeWindow._CXAI_CUR_VER = _CXAI_CUR_VER;
+    }
+    if (typeof window !== 'undefined') {
+        window.cxai_checkUpdate = cxai_checkUpdate;
+        window._CXAI_CUR_VER = _CXAI_CUR_VER;
+    }
+} catch(e) {}
+
+// 仅在顶层窗口自动检查更新
+try {
+    var _isTopForUpdate = (typeof top === 'undefined') || (top === window);
+    if (_isTopForUpdate) cxai_checkUpdate(false);
+} catch(e) {}
+
+GM_registerMenuCommand("检查更新", function() { cxai_checkUpdate(true); });
 
 
 // AI 智脑 Pro x 划词搜题 + 截图搜题（独立模块）
@@ -10427,15 +10590,22 @@ try { (function() {
             panel.setBody(login(qr.image));
             pollTimer = setInterval(function() {
                 api.loginCheck(qr.id).then(function(r) {
-                    if (r.status !== "success" || !r.token) return;
+                    // 兼容多种响应格式: {status:"success",token} / {status:1,token} / {code:0,data:{token}} 等
+                    var token = r.token || (r.data && r.data.token);
+                    if (!token) return;
+                    var ok = (r.status === "success" || r.status === 1 || r.status === true || r.code === 0 || r.code === 200);
+                    if (!ok) return;
                     stopPoll();
-                    auth.save(r.token, "");
+                    auth.save(token, "");
                     api.profile().then(function(p) {
-                        auth.save(r.token, p.name || "已登录", p.id || "");
+                        auth.save(token, p.name || "已登录", p.id || "");
                         if (lastWord) search(lastWord); else openManual();
                     });
-                }, 1500);
-            });
+                }).catch(function(err) {
+                    // 单次轮询失败不中断，只有 NeedLoginError 才中断
+                    if (err && err.name === "NeedLoginError") { stopPoll(); showLogin(); }
+                });
+            }, 1500);
         }).catch(function(err) {
             panel.setBody(message(err.message));
         });
@@ -10448,12 +10618,15 @@ try { (function() {
             panel.setBody(payQR(order));
             pollTimer = setInterval(function() {
                 api.payStatus(order.order_no).then(function(r) {
-                    if (r.status === 1) {
+                    // 兼容多种响应格式: status=1 / status="success" / code=0 等
+                    if (r.status === 1 || r.status === "success" || r.status === true || r.code === 0 || r.code === 200) {
                         stopPoll();
                         if (lastWord) search(lastWord); else openManual();
                     }
-                }, 3e3);
-            });
+                }).catch(function(err) {
+                    if (err && err.name === "NeedLoginError") { stopPoll(); showLogin(); }
+                });
+            }, 3000);
         }).catch(function(err) {
             if (err instanceof NeedLoginError) return showLogin();
             panel.setBody(message(err.message));
