@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.2.7
+// @version      1.3.1
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -235,8 +235,8 @@ function cxai_escapeHtml(str) {
 
 var BZM_API_SERVERS = [
     { url: "https://soti.ucuc.net/api/search.php", name: "BZM主接口" },
-    { url: "https://n1t.cn/api/search.php", name: "BZM备用1" },
-    { url: "https://tk.swk.tw/api/search.php", name: "BZM备用2" }
+    { url: "https://tk.n1t.cn/api/search.php", name: "BZM备用1（N1）" },
+    { url: "http://tk.n1t.cn/api/search.php", name: "BZM备用2（HTTP）" }
 ];
 var bzm_currentServerIndex = 0;
 
@@ -2232,6 +2232,12 @@ if (_l.pathname.includes('/mycourse/studentstudy')) {
         }
         return _oldcf(msg)
     }
+} else if (_l.pathname.includes('/page/quiz/stu/answerQuestion')) {
+    // 随堂练习 / 章节测验页面
+    try { cxai_showBox() } catch(e) { console.warn('[AI智脑Pro] cxai_showBox 异常:', e.message) }
+    cxai_waitForJQueryElement('.question-item', 30000).then(function () {
+        cxai_missonQuizPractice()
+    }).catch(function(e){ console.warn('[AI智脑Pro] 随堂练习页等待超时:', e.message) });
 } else if (_l.pathname.includes('/mooc2/exam/exam-list')) {
     // Swal.fire('学习通AI助手提示', '注意：请谨慎使用脚本考试，开始考试之前请确保该账号已激活脚本。', 'info')
 } else if (_l.pathname === '/mycourse/stu') {
@@ -2531,6 +2537,30 @@ function cxaiFindMultipleIndices(optionsArr, answerStr) {
     }
     // 模糊匹配
     return cxai_findFuzzyMatchMultiple(optionsArr, answerStr);
+}
+
+
+// ── 题目文本清洗工具 ──
+// 注意：这两个函数原先定义在 cxai_startDoQuizTimu 函数体内，导致
+// cxai_doHomeWork / cxai_missonExam / cxai_doExamPreview / cxai_doWork
+// 调用时抛 ReferenceError（严格模式下嵌套函数声明对外不可见），
+// 作业、考试、整卷预览、手机版测验的答题流程因此全部失效。已上移到顶层作用域。
+function cxai_tidyStr(s) {
+    if (s) {
+        let str = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').trim().replace(/&nbsp;/g, '').replace(new RegExp("&nbsp;", ("gm")), '').replace(/^\s+/, '').replace(/\s+$/, '');
+        return str
+    } else {
+        return null
+    }
+}
+
+function cxai_tidyQuestion(s) {
+    if (s) {
+        let str = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').replace(/^\d+[.、]/, '').trim().replace(/&nbsp;/g, '').replace('javascript:void(0);', '').replace(new RegExp("&nbsp;", ("gm")), '').replace(/^\s+/, '').replace(/\s+$/, '');
+        return str
+    } else {
+        return null;
+    }
 }
 
 
@@ -3041,7 +3071,8 @@ function cxai_showBox() {
                             <div class="cxai-switch on" data-key="bzmEnabled"></div>
                         </div>
                         <input class="cxai-input" type="password" id="cxaiSetting.bzmApiKey" placeholder="BZM API Key" autocomplete="new-password">
-                        <button class="cxai-btn-primary" style="margin-top:7px;width:100%" id="cxai-get-bzm-key-btn" title="打开 BZM 题库官网获取免费 API Key">获取 BZM 题库 Key</button>
+                        <button class="cxai-btn-primary" style="margin-top:7px;width:100%" id="cxai-get-bzm-key-btn" title="打开 N1 题库用户中心，登录后在 API 密钥区域复制 Key">获取 BZM 题库 Key</button>
+                        <div class="cxai-panel-desc" style="margin-top:5px;line-height:1.5">登录/注册后在用户中心复制 API Key，回到本页粘贴即可</div>
                         <div class="cxai-panel-row" style="margin-top:8px">
                             <div><div class="cxai-panel-label">icodef.com 题库</div><div class="cxai-panel-desc">兜底题库，无需 Key，格式简单稳定</div></div>
                             <div class="cxai-switch on" data-key="icodefEnabled"></div>
@@ -3348,7 +3379,7 @@ function cxai_showBox() {
                         cxai_logger(checked ? '防检测已开启' : '防检测已关闭', checked ? 'green' : 'gray');
                     } else if (inputId === 'cxaiSetting.decrypt') {
                         cxai_logger(checked ? '字体解密已开启' : '字体解密已关闭', checked ? 'green' : 'gray');
-                        if (checked) { try { cxai_decryptFonts(); } catch (_) {} }
+                        if (checked) { try { cxai_decryptFont(); } catch (_) {} }
                     } else if (inputId === 'cxaiSetting.searchEnabled') {
                         cxai_logger(checked ? 'AI 搜题已启用' : 'AI 搜题已关闭', checked ? 'green' : 'gray');
                     } else if (inputId === 'cxaiSetting.sub') {
@@ -3514,7 +3545,16 @@ function cxai_showBox() {
             var getBzmKeyBtn = _cxaiFindEl('cxai-get-bzm-key-btn');
             if (getBzmKeyBtn) {
                 getBzmKeyBtn.addEventListener('click', function () {
-                    window.open('https://tk.swk.tw/', '_blank');
+                    var bzmKeyPage = 'https://tk.n1t.cn/user.php';
+                    try {
+                        if (typeof GM_openInTab === 'function') {
+                            GM_openInTab(bzmKeyPage, { active: true });
+                        } else {
+                            window.open(bzmKeyPage, '_blank');
+                        }
+                    } catch (e) {
+                        window.open(bzmKeyPage, '_blank');
+                    }
                 });
             }
             // 大学搜题酱登录按钮
@@ -3997,8 +4037,12 @@ function cxai_showModelManager() {
         '<input type="text" id="cxai-model-endpoint" placeholder="https://api.example.com/v1/chat/completions" style="width:100%;padding:8px 10px;font-size:12px;border-radius:8px;border:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.2);color:rgba(220,224,236,.86);margin-bottom:8px;box-sizing:border-box;">' +
         '<label style="font-size:11px;color:rgba(170,178,200,.65);display:block;margin-bottom:3px;">API Key</label>' +
         '<input type="password" id="cxai-model-apikey" placeholder="输入你的 API Key" autocomplete="new-password" style="width:100%;padding:8px 10px;font-size:12px;border-radius:8px;border:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.2);color:rgba(220,224,236,.86);margin-bottom:8px;box-sizing:border-box;">' +
-        '<label style="font-size:11px;color:rgba(170,178,200,.65);display:block;margin-bottom:3px;">模型名称（逗号分隔）</label>' +
-        '<input type="text" id="cxai-model-names" placeholder="例如: gpt-4o, openai/gpt-4o" style="width:100%;padding:8px 10px;font-size:12px;border-radius:8px;border:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.2);color:rgba(220,224,236,.86);margin-bottom:10px;box-sizing:border-box;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">' +
+        '<label style="font-size:11px;color:rgba(170,178,200,.65);">模型名称（逗号分隔）</label>' +
+        '<button type="button" id="cxai-fetch-models-btn" class="cxai-btn cxai-btn-secondary" title="用上面的接口地址和 API Key 拉取可用模型列表" style="padding:2px 8px;font-size:10px;line-height:1.6;border-radius:5px;">获取模型列表</button>' +
+        '</div>' +
+        '<input type="text" id="cxai-model-names" placeholder="例如: gpt-4o, openai/gpt-4o" style="width:100%;padding:8px 10px;font-size:12px;border-radius:8px;border:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.2);color:rgba(220,224,236,.86);margin-bottom:6px;box-sizing:border-box;">' +
+        '<div id="cxai-model-picker" style="display:none;margin-bottom:10px;"></div>' +
         '<div style="display:flex;gap:8px;">' +
         '<button id="cxai-save-model-btn" class="cxai-btn cxai-btn-primary" title="保存当前配置到本地" style="flex:1;padding:5px 10px;font-size:10px;border-radius:6px;">保存</button>' +
         '<button id="cxai-test-model-btn" class="cxai-btn cxai-btn-secondary" title="发送测试请求，验证接口是否可用" style="flex:1;padding:5px 10px;font-size:10px;border-radius:6px;">检测</button>' +
@@ -4154,6 +4198,14 @@ function cxai_showModelManager() {
     document.getElementById('cxai-test-model-btn').addEventListener('click', function () {
         cxai_testModelConnection();
     });
+
+    // === 获取模型列表按钮 ===
+    var fetchModelsBtn = document.getElementById('cxai-fetch-models-btn');
+    if (fetchModelsBtn) {
+        fetchModelsBtn.addEventListener('click', function () {
+            cxai_fetchModelList();
+        });
+    }
 
     // 取消编辑按钮
     document.getElementById('cxai-cancel-edit-model-btn').addEventListener('click', function () {
@@ -4636,6 +4688,185 @@ function cxai_testModelConnection() {
         });
     });
 }
+
+// =============== 获取模型列表（/v1/models） ===============
+
+// 由 chat/completions 地址推导 /models 地址
+function cxaiNormalizeModelsEndpoint(ep) {
+    if (!ep) return '';
+    var url = String(ep).trim().replace(/\/+$/, '');
+    if (!url) return '';
+    if (/\/models$/i.test(url)) return url;
+    url = url.replace(/\/(chat\/)?completions$/i, '');
+    if (/\/models$/i.test(url)) return url;
+    if (/\/v1$/i.test(url)) return url + '/models';
+    return url + '/v1/models';
+}
+
+// 兼容 OpenAI / 中转站多种 /models 响应格式，返回去重排序后的模型 id 列表
+function cxai_parseModelList(raw) {
+    var ids = [];
+    function push(v) {
+        if (v == null) return;
+        if (typeof v === 'string') { var s = v.trim(); if (s) ids.push(s); return; }
+        if (typeof v === 'object') {
+            var id = v.id || v.name || v.model || v.slug;
+            if (id) ids.push(String(id).trim());
+        }
+    }
+    if (!raw) return ids;
+    var arr = null;
+    if (Array.isArray(raw)) arr = raw;
+    else if (Array.isArray(raw.data)) arr = raw.data;
+    else if (Array.isArray(raw.models)) arr = raw.models;
+    else if (raw.data && Array.isArray(raw.data.models)) arr = raw.data.models;
+    if (arr) for (var i = 0; i < arr.length; i++) push(arr[i]);
+    var seen = {}, out = [];
+    for (var j = 0; j < ids.length; j++) {
+        if (!ids[j] || seen[ids[j]]) continue;
+        seen[ids[j]] = 1;
+        out.push(ids[j]);
+    }
+    out.sort();
+    return out;
+}
+
+var CXAI_CHIP_BASE = 'font-size:10px;padding:3px 8px;border-radius:12px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+var CXAI_CHIP_ON = 'background:rgba(94,234,212,.18);border:1px solid rgba(94,234,212,.45);color:#5eead4;';
+var CXAI_CHIP_OFF = 'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:rgba(200,204,218,.8);';
+
+function cxai_applyChipState(el, on) {
+    el.setAttribute('data-on', on ? '1' : '0');
+    el.setAttribute('style', CXAI_CHIP_BASE + (on ? CXAI_CHIP_ON : CXAI_CHIP_OFF));
+}
+
+// 把已勾选的模型同步回「模型名称」输入框
+function cxai_syncPickedModels() {
+    var picker = document.getElementById('cxai-model-picker');
+    var input = document.getElementById('cxai-model-names');
+    if (!picker || !input) return;
+    var chips = picker.querySelectorAll('.cxai-model-chip');
+    var picked = [];
+    for (var i = 0; i < chips.length; i++) {
+        if (chips[i].getAttribute('data-on') === '1') picked.push(chips[i].getAttribute('data-model'));
+    }
+    input.value = picked.join(', ');
+    var cnt = picker.querySelector('.cxai-picker-count');
+    if (cnt) cnt.textContent = '共 ' + chips.length + ' 个模型，已选 ' + picked.length + ' 个';
+}
+
+function cxai_renderModelPicker(models) {
+    var picker = document.getElementById('cxai-model-picker');
+    var input = document.getElementById('cxai-model-names');
+    if (!picker || !input) return;
+    var picked = {};
+    input.value.split(/[,，;；、\n\r]+/).forEach(function (s) { var t = s.trim(); if (t) picked[t] = 1; });
+
+    var btnStyle = 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:rgba(200,204,218,.8);border-radius:5px;padding:2px 8px;font-size:10px;cursor:pointer;';
+    var html = '<div style="border:1px solid rgba(255,255,255,.09);border-radius:8px;background:rgba(0,0,0,.15);padding:8px 10px;">';
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">';
+    html += '<span class="cxai-picker-count" style="font-size:10px;color:rgba(170,178,200,.7);flex:1;"></span>';
+    html += '<button type="button" class="cxai-picker-all" style="' + btnStyle + '">全选</button>';
+    html += '<button type="button" class="cxai-picker-none" style="' + btnStyle + '">清空</button>';
+    html += '<button type="button" class="cxai-picker-close" style="' + btnStyle + '">收起</button>';
+    html += '</div>';
+    html += '<div style="max-height:170px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:5px;">';
+    for (var i = 0; i < models.length; i++) {
+        var m = models[i];
+        html += '<button type="button" class="cxai-model-chip" data-model="' + cxai_escapeHtml(m) + '" data-on="' + (picked[m] ? '1' : '0') + '" style="' + CXAI_CHIP_BASE + (picked[m] ? CXAI_CHIP_ON : CXAI_CHIP_OFF) + '">' + cxai_escapeHtml(m) + '</button>';
+    }
+    html += '</div></div>';
+    picker.innerHTML = html;
+    picker.style.display = 'block';
+
+    var chips = picker.querySelectorAll('.cxai-model-chip');
+    for (var k = 0; k < chips.length; k++) {
+        chips[k].addEventListener('click', function () {
+            cxai_applyChipState(this, this.getAttribute('data-on') !== '1');
+            cxai_syncPickedModels();
+        });
+    }
+    picker.querySelector('.cxai-picker-all').addEventListener('click', function () {
+        var c = picker.querySelectorAll('.cxai-model-chip');
+        for (var x = 0; x < c.length; x++) cxai_applyChipState(c[x], true);
+        cxai_syncPickedModels();
+    });
+    picker.querySelector('.cxai-picker-none').addEventListener('click', function () {
+        var c = picker.querySelectorAll('.cxai-model-chip');
+        for (var x = 0; x < c.length; x++) cxai_applyChipState(c[x], false);
+        cxai_syncPickedModels();
+    });
+    picker.querySelector('.cxai-picker-close').addEventListener('click', function () {
+        picker.style.display = 'none';
+    });
+    cxai_syncPickedModels();
+}
+
+function cxai_fetchModelList() {
+    var resultDiv = document.getElementById('cxai-test-result');
+    var btn = document.getElementById('cxai-fetch-models-btn');
+    var epEl = document.getElementById('cxai-model-endpoint');
+    var keyEl = document.getElementById('cxai-model-apikey');
+    var endpoint = epEl ? epEl.value.trim() : '';
+    var apiKey = keyEl ? keyEl.value.trim() : '';
+
+    function showMsg(kind, text) {
+        if (!resultDiv) return;
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = '8px 10px';
+        resultDiv.style.borderRadius = '6px';
+        resultDiv.style.fontSize = '12px';
+        resultDiv.style.lineHeight = '1.6';
+        if (kind === 'ok') {
+            resultDiv.style.background = 'rgba(16,185,129,.12)';
+            resultDiv.style.border = '1px solid rgba(16,185,129,.25)';
+            resultDiv.style.color = '#34d399';
+        } else if (kind === 'info') {
+            resultDiv.style.background = 'rgba(59,130,246,.08)';
+            resultDiv.style.border = '1px solid rgba(59,130,246,.2)';
+            resultDiv.style.color = '#93c5fd';
+        } else {
+            resultDiv.style.background = 'rgba(248,113,113,.12)';
+            resultDiv.style.border = '1px solid rgba(248,113,113,.25)';
+            resultDiv.style.color = '#f87171';
+        }
+        resultDiv.textContent = text;
+    }
+
+    if (!endpoint) return showMsg('err', '请先填写接口地址');
+    if (!apiKey) return showMsg('err', '请先填写 API Key');
+
+    var url = cxaiNormalizeModelsEndpoint(endpoint);
+    if (btn) { btn.disabled = true; btn.style.opacity = '.5'; btn.textContent = '获取中…'; }
+    showMsg('info', '正在从 ' + url + ' 获取模型列表…');
+
+    function done() {
+        if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = '获取模型列表'; }
+    }
+
+    GM_xmlhttpRequest({
+        method: 'GET',
+        url: url,
+        headers: { 'Authorization': 'Bearer ' + apiKey },
+        timeout: 15000,
+        onload: function (xhr) {
+            done();
+            if (xhr.status === 401) return showMsg('err', 'API Key 无效（401）');
+            if (xhr.status === 403) return showMsg('err', '访问被拒绝（403）');
+            if (xhr.status === 404) return showMsg('err', '接口不存在（404）：' + url);
+            if (xhr.status < 200 || xhr.status >= 300) return showMsg('err', '请求失败 HTTP ' + xhr.status);
+            var raw = null;
+            try { raw = JSON.parse(xhr.responseText); } catch (e) { return showMsg('err', '响应不是合法 JSON'); }
+            var models = cxai_parseModelList(raw);
+            if (models.length === 0) return showMsg('err', '接口通了但没解析出模型列表，该中转站可能不支持 /models');
+            cxai_renderModelPicker(models);
+            showMsg('ok', '获取到 ' + models.length + ' 个模型，点击标签选择，会自动填入上方输入框');
+        },
+        onerror: function () { done(); showMsg('err', '网络错误，请检查接口地址'); },
+        ontimeout: function () { done(); showMsg('err', '请求超时'); }
+    });
+}
+
 
 function cxai_logger(str, color) {
     var _time = new Date().toLocaleTimeString()
@@ -5495,28 +5726,19 @@ function cxai_startDoQuizTimu(index, TimuList) {
         }
         return
     }
+    // 复合大题（阅读理解/材料题）：先遍历子题
+    let $subQuestions = $(TimuList[index]).find('.reading_answer')
+    if ($subQuestions && $subQuestions.length > 0) {
+        let parentQuestion = cxai_tidyQuestion($(TimuList[index]).find('.Py-m1-title, .mark_name').first().html() || '')
+        cxai_logger('检测到复合大题（含 ' + $subQuestions.length + ' 个子题），开始处理子题', 'blue')
+        cxai_processSubQuestions(0, $subQuestions, parentQuestion, function () { return cxaiCfg.time }, function () { cxai_startDoQuizTimu(index + 1, TimuList) })
+        return
+    }
     // 获取当前题目所属的window对象 (可能是iframe)
     let contextWindow = TimuList[index] ? (TimuList[index].ownerDocument.defaultView || unsafeWindow) : unsafeWindow;
     let questionFull = $(TimuList[index]).find('.Py-m1-title').html()
 
-// ── 提前定义的工具函数 ──
-function cxai_tidyStr(s) {
-    if (s) {
-        let str = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').trim().replace(/&nbsp;/g, '').replace(new RegExp("&nbsp;", ("gm")), '').replace(/^\s+/, '').replace(/\s+$/, '');
-        return str
-    } else {
-        return null
-    }
-}
-
-function cxai_tidyQuestion(s) {
-    if (s) {
-        let str = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').replace(/^\d+[.、]/, '').trim().replace(/&nbsp;/g, '').replace('javascript:void(0);', '').replace(new RegExp("&nbsp;", ("gm")), '').replace(/^\s+/, '').replace(/\s+$/, '');
-        return str
-    } else {
-        return null;
-    }
-}
+// cxai_tidyStr / cxai_tidyQuestion 已上移到 § 4 顶层作用域（原定义在本函数内会导致跨函数调用抛 ReferenceError）
 
     let _question = cxai_tidyQuestion(questionFull).replace(/.*?\[.*?题\]\s*\n\s*/, '').trim()
     let _questionImages = cxaiExtractImages(questionFull)
@@ -6303,6 +6525,14 @@ function cxai_doHomeWork(index, TiMuList) {
         cxai_logger('作业题目已全部完成', 'green')
         return
     }
+    // 复合大题（阅读理解/材料题）：先遍历子题
+    let $subQuestions = $(TiMuList[index]).find('.reading_answer')
+    if ($subQuestions && $subQuestions.length > 0) {
+        let parentQuestion = cxai_tidyQuestion($(TiMuList[index]).find('.mark_name').html() || '')
+        cxai_logger('检测到复合大题（含 ' + $subQuestions.length + ' 个子题），开始处理子题', 'blue')
+        cxai_processSubQuestions(0, $subQuestions, parentQuestion, function () { return cxaiCfg.time }, function () { cxai_doHomeWork(index + 1, TiMuList) })
+        return
+    }
 
 
     // Helper function for handling normal textareas
@@ -6334,7 +6564,7 @@ function cxai_doHomeWork(index, TiMuList) {
         计算题: 4, 计算: 4, 分录题: 4, 资料题: 4, 作图题: 4, 其他: 4, 其它: 4, 阅读理解: 4, 阅读: 4, 阅读题: 4, 理解题: 4, 完形填空: 4, 完形: 4, 综合题: 4,
         写作题: 5,
         翻译题: 6
-    });
+    })[typeName];
     cxai_currentQuestionMeta = { index: index, total: TiMuList.length, typeName: typeName }
     let _questionFull = $(TiMuList[index]).find('.mark_name').html()
     let _question = cxai_tidyQuestion(_questionFull).replace(/^[(].*?[)]/, '').trim()
@@ -6761,12 +6991,470 @@ var _cxaiAntiSleepStarted = false;
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  § 8b. 随堂练习 / 章节测验（/page/quiz/stu/answerQuestion）
+//  题目容器 .question-item → 题型判定 → AI/题库作答 → 自动提交
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var _cxaiQuizPracticeRunning = false;
+
+function cxai_getQuizPracticeType($item) {
+    var typeText = ($item.find('.grey-text').first().text() || '').replace(/\s+/g, '')
+    var className = String($item.attr('class') || '')
+    if (typeText.indexOf('多选') !== -1 || className.indexOf('multiple-choice') !== -1) return { type: 1, name: '多选题' }
+    if (typeText.indexOf('判断') !== -1) return { type: 3, name: '判断题' }
+    if (typeText.indexOf('填空') !== -1 || $item.find('.option-fill-list').length > 0) return { type: 2, name: '填空题' }
+    if (/(简答|问答|论述|名词解释|计算题|材料题|写作|翻译)/.test(typeText) || $item.find('.short-answer-textarea').length > 0) {
+        return { type: 4, name: typeText.replace(/^\[|\]$/g, '') || '简答题' }
+    }
+    if (typeText.indexOf('单选') !== -1 || className.indexOf('single-choice') !== -1) return { type: 0, name: '单选题' }
+    return { type: -1, name: typeText || '未知题型' }
+}
+
+function cxai_getQuizPracticeQuestionText($item) {
+    var $name = $item.find('.question-name').first().clone()
+    $name.find('.grey-text').remove()
+    var text = ($name.text() || '').replace(/\s+/g, ' ').trim()
+    return cxai_tidyQuestion(text) || '随堂练习题'
+}
+
+function cxai_getQuizPracticeOptions($item) {
+    return $item.find('.option-list > li').map(function () {
+        var $clone = $(this).clone()
+        $clone.find('.option-letter').remove()
+        return cxai_tidyStr($clone.text()) || ''
+    }).get()
+}
+
+function cxai_getQuizPracticeFillInputs($item) {
+    return $item.find('input.ofl-ipt, .option-fill-list input, .option-fill-list textarea').filter(function () {
+        return !this.disabled
+    })
+}
+
+function cxai_getQuizPracticeTextarea($item) {
+    var $ta = $item.find('.short-answer-textarea textarea').first()
+    if ($ta.length === 0) $ta = $item.find('textarea').first()
+    return $ta
+}
+
+function cxai_isQuizPracticeAnswered($item, type) {
+    if (type === 0 || type === 1 || type === 3) {
+        return $item.find('.option-list > li.active, .option-list > li.selected, .option-list > li.checked').length > 0
+    }
+    if (type === 2) {
+        var hasFill = false
+        cxai_getQuizPracticeFillInputs($item).each(function () {
+            if ($.trim($(this).val() || '')) hasFill = true
+        })
+        return hasFill
+    }
+    if (type === 4) return $.trim(cxai_getQuizPracticeTextarea($item).val() || '') !== ''
+    return false
+}
+
+// 用原生 value setter 写值并派发 input/change/blur，绕开 Vue/React 受控组件拦截
+function cxai_setQuizPracticeValue($element, value) {
+    var element = $element.get(0)
+    if (!element) return
+    var text = value == null ? '' : String(value)
+    try {
+        var proto = element.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+        var descriptor = Object.getOwnPropertyDescriptor(proto, 'value')
+        if (descriptor && descriptor.set) descriptor.set.call(element, text)
+        else element.value = text
+    } catch (_) {
+        element.value = text
+    }
+    try {
+        element.dispatchEvent(new Event('input', { bubbles: true }))
+        element.dispatchEvent(new Event('change', { bubbles: true }))
+        element.dispatchEvent(new Event('blur', { bubbles: true }))
+    } catch (_) { /* empty */ }
+}
+
+function cxai_setQuizPracticeOptionState($options, selectedIndexes) {
+    var selected = {}
+    selectedIndexes.forEach(function (index) { selected[index] = true })
+    $options.each(function (index) {
+        var $option = $(this)
+        var shouldSelect = !!selected[index]
+        var isSelected = $option.hasClass('active') || $option.hasClass('selected') || $option.hasClass('checked')
+        if (shouldSelect !== isSelected) {
+            try { this.click() } catch (_) { $option.trigger('click') }
+        }
+    })
+}
+
+function cxai_appendQuizPracticeAnswer($item, answer) {
+    if (localStorage.getItem('cxaiSetting.alterTitle') !== 'true') return
+    if (!answer || $item.attr('data-cxai-answer-appended') === 'true') return
+    var $name = $item.find('.question-name').first()
+    if ($name.length === 0) return
+    $('<p></p>').css('font-weight', 'bold').text('答案：' + answer).appendTo($name)
+    $item.attr('data-cxai-answer-appended', 'true')
+}
+
+function cxai_getQuizPracticeSubmitButton() {
+    var candidates = $('button, input[type="button"], input[type="submit"], .van-button, .submit-btn, .submit, [role="button"]').filter(function () {
+        if (this.disabled) return false
+        if (!$(this).is(':visible')) return false
+        var text = ($(this).text() || $(this).val() || '').replace(/\s+/g, '')
+        var className = typeof this.className === 'string' ? this.className : ''
+        if (text === '提交' || (text.indexOf('提交') !== -1 && text.length <= 8)) return true
+        return /(?:^|[-_\s])submit(?:$|[-_\s])/i.test(' ' + className + ' ')
+    })
+    return candidates.last()
+}
+
+// 选项文本 → 索引匹配（字母 → 精确 → 模糊），随堂练习与子题共用
+function cxai_matchOptionIndexes(optionTexts, answer, isMultiple) {
+    var indexes = []
+    var ans = String(answer == null ? '' : answer).trim()
+    if (!ans) return indexes
+    var letterIdx = isMultiple ? cxaiMatchMultipleByLetter(ans, optionTexts.length) : cxaiMatchByLetter(ans, optionTexts.length)
+    if (letterIdx !== -1 && letterIdx != null) {
+        return Array.isArray(letterIdx) ? letterIdx.slice() : [letterIdx]
+    }
+    if (isMultiple) {
+        var parts = ans.split('|').map(function (s) { return s.trim() }).filter(Boolean)
+        if (parts.length === 0) parts = [ans]
+        parts.forEach(function (part) {
+            var idx = optionTexts.findIndex(function (t) { return String(t).trim() === part })
+            if (idx >= 0 && indexes.indexOf(idx) === -1) indexes.push(idx)
+        })
+        if (indexes.length === 0) indexes = cxai_findFuzzyMatchMultiple(optionTexts, ans)
+    } else {
+        var i = optionTexts.findIndex(function (t) { return String(t).trim() === ans })
+        if (i === -1) i = cxai_findBestFuzzyMatch(optionTexts, ans, undefined, true)
+        if (i >= 0) indexes = [i]
+    }
+    return indexes
+}
+
+function cxai_continueQuizPractice(index, questions, state) {
+    var wait = Number(cxaiCfg.time)
+    if (!isFinite(wait) || wait < 300) wait = 2500
+    wait += Math.floor(Math.random() * 350)
+    setTimeout(function () { cxai_doQuizPractice(index, questions, state) }, wait)
+}
+
+function cxai_finishQuizPractice(state) {
+    cxai_logger('随堂练习处理完成，共 ' + state.total + ' 题，已作答 ' + state.answered + ' 题，失败 ' + state.failed + ' 题', state.failed ? 'orange' : 'green')
+    var autoSubmit = localStorage.getItem('cxaiSetting.sub') === 'true'
+    var forceSubmit = localStorage.getItem('cxaiSetting.force') === 'true'
+    if (!autoSubmit && !forceSubmit) {
+        cxai_logger('随堂练习未开启自动提交，已保留当前作答', 'blue')
+        return
+    }
+    if (state.failed > 0 && !forceSubmit) {
+        cxai_logger('存在未完成题目，已停止提交；如需强制提交请开启「测验强制提交」', 'orange')
+        return
+    }
+    var $submit = cxai_getQuizPracticeSubmitButton()
+    if ($submit.length === 0) {
+        cxai_logger('未找到随堂练习提交按钮，请手动提交', 'red')
+        return
+    }
+    try {
+        $submit.get(0).click()
+        cxai_logger('已提交随堂练习', 'green')
+    } catch (_) {
+        cxai_logger('随堂练习提交按钮点击失败，请手动提交', 'red')
+    }
+}
+
+function cxai_doQuizPractice(index, questions, state) {
+    if (cxai_isPaused()) {
+        setTimeout(function () { cxai_doQuizPractice(index, questions, state) }, 5000)
+        return
+    }
+    if (index >= questions.length) {
+        setTimeout(function () { cxai_finishQuizPractice(state) }, 500)
+        return
+    }
+    var $item = $(questions[index])
+    if ($item.length === 0) {
+        state.failed++
+        cxai_continueQuizPractice(index + 1, questions, state)
+        return
+    }
+    var typeInfo = cxai_getQuizPracticeType($item)
+    cxai_currentQuestionMeta = { index: index, total: questions.length, typeName: typeInfo.name }
+    if (typeInfo.type < 0) {
+        state.failed++
+        cxai_logger('第' + (index + 1) + '题题型未识别，已跳过', 'red')
+        cxai_continueQuizPractice(index + 1, questions, state)
+        return
+    }
+    if (!cxai_isRedoMode() && cxai_isQuizPracticeAnswered($item, typeInfo.type)) {
+        state.answered++
+        cxai_logger('第' + (index + 1) + '题已作答，已跳过', 'blue')
+        cxai_continueQuizPractice(index + 1, questions, state)
+        return
+    }
+    var question = cxai_getQuizPracticeQuestionText($item)
+    var options = cxai_getQuizPracticeOptions($item)
+    var prompt
+    if (typeInfo.type === 0 || typeInfo.type === 1 || typeInfo.type === 3) {
+        if (options.length === 0) {
+            state.failed++
+            cxai_logger('第' + (index + 1) + '题未找到选项，已跳过', 'red')
+            cxai_continueQuizPractice(index + 1, questions, state)
+            return
+        }
+        if (typeInfo.type === 0) prompt = cxai_buildPrompt({ type: '单选题', question: question, options: options, answer_format: '只回答一个选项字母或选项内容' })
+        else if (typeInfo.type === 1) prompt = cxai_buildPrompt({ type: '多选题', question: question, options: options, answer_format: "用'|'分割多个答案，或回答选项字母" })
+        else prompt = cxai_buildPrompt({ type: '判断题', question: question, options: options, answer_format: '只回答正确或错误，或回答选项字母' })
+    } else if (typeInfo.type === 2) {
+        prompt = cxai_buildPrompt({ type: '填空题', question: question, answer_format: "多个填空内容用'|'分隔" })
+    } else {
+        prompt = cxai_buildPrompt({ type: '简答题', question: question })
+    }
+    cxai_getAnswer(typeInfo.type, prompt).then(function (answer) {
+        cxai_appendQuizPracticeAnswer($item, answer)
+        var applied = false
+        if (typeInfo.type === 0 || typeInfo.type === 1 || typeInfo.type === 3) {
+            var indexes = []
+            if (typeInfo.type === 3) {
+                var judgeAnswer = cxai_parseJudgeAnswer(answer)
+                var judgeIndex = judgeAnswer === null ? -1 : cxai_findJudgeOptionIndex(options, judgeAnswer === 'true')
+                if (judgeIndex !== -1) indexes = [judgeIndex]
+            }
+            if (indexes.length === 0) indexes = cxai_matchOptionIndexes(options, answer, typeInfo.type === 1)
+            if (typeInfo.type !== 1) indexes = indexes.slice(0, 1)
+            if (indexes.length === 0) {
+                state.failed++
+                cxai_logger('第' + (index + 1) + '题未能匹配到选项，已跳过', 'red')
+            } else {
+                cxai_setQuizPracticeOptionState($item.find('.option-list > li'), indexes)
+                applied = true
+                state.answered++
+            }
+        } else if (typeInfo.type === 2) {
+            var $inputs = cxai_getQuizPracticeFillInputs($item)
+            var parts = $inputs.length === 1 ? [String(answer || '').trim()] : String(answer || '').split('|').map(function (s) { return s.trim() })
+            if ($inputs.length > 1 && parts.length < $inputs.length) {
+                var ws = String(answer || '').split(/\s+/).filter(Boolean)
+                if (ws.length >= $inputs.length) parts = ws
+            }
+            if ($inputs.length === 0) {
+                state.failed++
+                cxai_logger('第' + (index + 1) + '题未找到填空输入框，已跳过', 'red')
+            } else {
+                $inputs.each(function (inputIndex) {
+                    var value = parts[inputIndex] != null ? parts[inputIndex] : (parts.length === 1 ? parts[0] : '')
+                    cxai_setQuizPracticeValue($(this), value)
+                })
+                applied = true
+                state.answered++
+            }
+        } else {
+            var $textarea = cxai_getQuizPracticeTextarea($item)
+            if ($textarea.length === 0) {
+                state.failed++
+                cxai_logger('第' + (index + 1) + '题未找到作答输入框，已跳过', 'red')
+            } else {
+                cxai_setQuizPracticeValue($textarea, answer)
+                applied = true
+                state.answered++
+            }
+        }
+        if (applied) cxai_logger('第' + (index + 1) + '题作答完成', 'green')
+        cxai_continueQuizPractice(index + 1, questions, state)
+    }).catch(function () {
+        state.failed++
+        cxai_continueQuizPractice(index + 1, questions, state)
+    })
+}
+
+function cxai_missonQuizPractice() {
+    if (_cxaiQuizPracticeRunning) return
+    var questions = $('.question-item').toArray()
+    if (questions.length === 0) {
+        cxai_logger('未找到随堂练习题目', 'red')
+        return
+    }
+    _cxaiQuizPracticeRunning = true
+    var state = { total: questions.length, answered: 0, failed: 0 }
+    cxai_logger('检测到随堂练习，共 ' + questions.length + ' 题，开始处理', 'green')
+    cxai_doQuizPractice(0, questions, state)
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  § 8c. 复合大题子题循环（阅读理解 / 材料题）
+//  大题背景 + 逐小题作答，供作业 / 测验 / 考试 / 整卷预览复用
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function cxai_processSubQuestions(subIndex, $subQuestions, parentQuestion, getDelay, onComplete) {
+    if (cxai_isPaused()) {
+        setTimeout(function () { cxai_processSubQuestions(subIndex, $subQuestions, parentQuestion, getDelay, onComplete) }, 5000)
+        return
+    }
+    var delay = typeof getDelay === 'function' ? Number(getDelay()) : Number(cxaiCfg.time)
+    if (!isFinite(delay) || delay < 300) delay = 2500
+
+    if (subIndex >= $subQuestions.length) {
+        cxai_logger('该大题所有子题已处理完毕，准备切换下一题', 'green')
+        if (typeof onComplete === 'function') setTimeout(onComplete, delay)
+        return
+    }
+
+    var $subQ = $($subQuestions[subIndex])
+    var nextSub = function () {
+        setTimeout(function () { cxai_processSubQuestions(subIndex + 1, $subQuestions, parentQuestion, getDelay, onComplete) }, delay)
+    }
+
+    var subQuestionText = ($subQ.find('.reader_answer_tit').text() || '').replace(/^\(\d+\)\s*/, '').trim()
+    if (!subQuestionText) subQuestionText = ($subQ.find('.mark_name').text() || '').replace(/^\(\d+\)\s*/, '').trim()
+    var fullQuestion = '[大题背景]\n' + parentQuestion + '\n\n[小题]\n' + subQuestionText
+
+    // 题型判定：qtype 属性优先，回退到 .read_type 文本
+    var subType
+    var subTypeVal = parseInt($subQ.attr('qtype'), 10)
+    var readTypeText = ($subQ.find('.read_type').text() || '').trim()
+    if (!isNaN(subTypeVal)) subType = subTypeVal
+    else if (readTypeText.indexOf('单选') !== -1) subType = 0
+    else if (readTypeText.indexOf('多选') !== -1) subType = 1
+    else if (readTypeText.indexOf('填空') !== -1) subType = 2
+    else if (readTypeText.indexOf('判断') !== -1) subType = 3
+    else if (/简答|问答|论述|名词解释|计算|材料|写作|翻译/.test(readTypeText)) subType = 4
+
+    if (subType === undefined) {
+        cxai_logger('子题 ' + (subIndex + 1) + ' 题型未识别，跳过', 'red')
+        return nextSub()
+    }
+
+    var $options = $subQ.find('.answerBg .answer_p')
+    if ($options.length === 0) $options = $subQ.find('.stem_answer .answer_p')
+    var $subTextareas = $subQ.find('textarea, .subEditor textarea, .divText textarea, textarea[name^="answerEditor"]')
+
+    // 已作答判定（重做模式下忽略）
+    var hasAnswered = false
+    if (subType === 0 || subType === 1 || subType === 3) {
+        for (var i = 0; i < $options.length; i++) {
+            var cls = $($options[i]).parent().find('span').attr('class') || ''
+            if (cls.indexOf('check_answer') !== -1) { hasAnswered = true; break }
+        }
+    } else {
+        $subTextareas.each(function () {
+            var eid = $(this).attr('id') || $(this).attr('name')
+            try {
+                if (eid && typeof UE !== 'undefined' && UE && UE.getEditor(eid) && UE.getEditor(eid).getContent && UE.getEditor(eid).getContent() !== '') hasAnswered = true
+            } catch (e) {
+                if ($(this).val() && String($(this).val()).trim() !== '') hasAnswered = true
+            }
+        })
+    }
+    if (hasAnswered && !cxai_isRedoMode()) {
+        cxai_logger('子题 ' + (subIndex + 1) + ' 已作答，跳过', 'green')
+        setTimeout(function () { cxai_processSubQuestions(subIndex + 1, $subQuestions, parentQuestion, getDelay, onComplete) }, 30)
+        return
+    }
+
+    var parentTypeName = $subQuestions.parent().parent().attr('typename') || '阅读理解'
+    var _prevMeta = cxai_currentQuestionMeta
+    cxai_currentQuestionMeta = {
+        index: _prevMeta ? _prevMeta.index : null,
+        total: _prevMeta ? _prevMeta.total : null,
+        typeName: parentTypeName + ' 第' + (subIndex + 1) + '小题',
+        questionText: fullQuestion
+    }
+
+    if (subType === 0 || subType === 3) {
+        var optionTexts = []
+        $options.each(function () { optionTexts.push(cxai_tidyStr($(this).html()) || ($(this).text() || '').replace(/^[A-Z]\s*/, '').trim()) })
+        var prompt = cxai_buildPrompt({
+            type: subType === 0 ? '单选题' : '判断题',
+            question: fullQuestion,
+            options: subType === 0 ? optionTexts : undefined,
+            answer_format: subType === 0 ? '只回答一个选项字母或选项内容' : '只回答正确或错误'
+        })
+        cxai_getAnswer(subType, prompt).then(function (agrs) {
+            var idx = -1
+            if (subType === 3) {
+                var judgeResult = cxai_parseJudgeAnswer(agrs)
+                if (judgeResult !== null) idx = cxai_findJudgeOptionIndex(optionTexts, judgeResult === 'true')
+            } else {
+                var matched = cxai_matchOptionIndexes(optionTexts, agrs, false)
+                if (matched.length > 0) idx = matched[0]
+            }
+            if (idx === -1 || idx >= $options.length) {
+                cxai_logger('子题 ' + (subIndex + 1) + ' 未能匹配到选项，请手动选择', 'red')
+            } else {
+                var $opt = $($options[idx])
+                var _cls = $opt.parent().find('span').attr('class') || ''
+                if (_cls.indexOf('check_answer') === -1) $opt.parent().click()
+                cxai_logger('子题 ' + (subIndex + 1) + ' 答题成功', 'green')
+            }
+            nextSub()
+        }).catch(function () { nextSub() })
+    } else if (subType === 1) {
+        var multiTexts = []
+        $options.each(function () { multiTexts.push(cxai_tidyStr($(this).html()) || ($(this).text() || '').replace(/^[A-Z]\s*/, '').trim()) })
+        var mPrompt = cxai_buildPrompt({ type: '多选题', question: fullQuestion, options: multiTexts, answer_format: "用'|'分割多个答案，或回答选项字母" })
+        cxai_getAnswer(1, mPrompt).then(function (agrs) {
+            var idxs = cxai_matchOptionIndexes(multiTexts, agrs, true)
+            if (idxs.length === 0) {
+                cxai_logger('子题 ' + (subIndex + 1) + ' 未能匹配到选项，请手动选择', 'red')
+            } else {
+                idxs.forEach(function (i2) {
+                    if (i2 < 0 || i2 >= $options.length) return
+                    var $o = $($options[i2])
+                    var _c = $o.parent().find('span').attr('class') || ''
+                    if (_c.indexOf('check_answer') === -1) $o.parent().click()
+                })
+                cxai_logger('子题 ' + (subIndex + 1) + ' 答题成功', 'green')
+            }
+            nextSub()
+        }).catch(function () { nextSub() })
+    } else {
+        if ($subTextareas.length === 0) {
+            cxai_logger('子题 ' + (subIndex + 1) + ' 未找到填空/文本输入框，跳过', 'red')
+            return nextSub()
+        }
+        var tPrompt = cxai_buildPrompt({
+            type: subType === 2 ? '填空题' : '简答题',
+            question: fullQuestion,
+            answer_format: subType === 2 ? "用'|'分割多个答案" : '用50字简要回答'
+        })
+        cxai_getAnswer(subType, tPrompt).then(function (agrs) {
+            var parts = subType === 2 ? String(agrs || '').split('|') : [agrs]
+            $subTextareas.each(function (i3) {
+                var el = this
+                var _currentId = $(el).attr('id') || $(el).attr('name')
+                var val = parts[i3] !== undefined ? parts[i3] : (parts[0] || agrs)
+                setTimeout(function () {
+                    try {
+                        if (_currentId && typeof UE !== 'undefined' && UE && UE.getEditor(_currentId)) UE.getEditor(_currentId).setContent(val)
+                        else $(el).val(val)
+                    } catch (e) {
+                        $(el).val(val)
+                    }
+                }, 300 + i3 * 200)
+            })
+            cxai_logger('子题 ' + (subIndex + 1) + ' 答题成功', 'green')
+            setTimeout(function () { cxai_processSubQuestions(subIndex + 1, $subQuestions, parentQuestion, getDelay, onComplete) }, delay + 200 * $subTextareas.length)
+        }).catch(function () { nextSub() })
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  § 9. 考试答题
 //  单题考试、整卷预览、考试跳转
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function cxai_missonExam() {
     let $_examtable = $('.mark_table').find('.whiteDiv')
+    // 复合大题（阅读理解/材料题）：先遍历子题，全部完成后再跳下一题
+    let $subQuestions = $_examtable.find('.reading_answer')
+    if ($subQuestions && $subQuestions.length > 0) {
+        let parentQuestion = cxai_tidyQuestion($_examtable.find('h3.mark_name').html() || '')
+        cxai_logger('检测到复合大题（含 ' + $subQuestions.length + ' 个子题），开始处理子题', 'blue')
+        cxai_processSubQuestions(0, $subQuestions, parentQuestion, function () { return cxaiCfg.time }, function () { cxai_toNextExam() })
+        return
+    }
     let _questionFull = cxai_tidyStr($_examtable.find('h3.mark_name').html().trim())
     let typeName = _questionFull.match(/[(](.*?),.*?分[)]|$/)[1];
     let _qType = ({
@@ -7307,6 +7995,14 @@ function cxai_doExamPreview(index, TiMuList) {
         return
     }
     let $timu = $(TiMuList[index])
+    // 复合大题（阅读理解/材料题）：先遍历子题
+    let $subQuestions = $timu.find('.reading_answer')
+    if ($subQuestions && $subQuestions.length > 0) {
+        let parentQuestion = cxai_tidyQuestion($timu.find('.mark_name').html() || '')
+        cxai_logger('检测到复合大题（含 ' + $subQuestions.length + ' 个子题），开始处理子题', 'blue')
+        cxai_processSubQuestions(0, $subQuestions, parentQuestion, function () { return cxai_getExamPreviewDelay() }, function () { cxai_doExamPreview(index + 1, TiMuList) })
+        return
+    }
     let typeInfo = cxai_getExamPreviewType($timu)
     let _type = typeInfo.type
     let typeName = typeInfo.typeName
@@ -9553,7 +10249,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.2.7';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.1';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
@@ -10628,6 +11324,8 @@ try { (function() {
                     name: auth.name(),
                     uid: auth.uid()
                 }));
+            }).catch(function() {
+                // profile 拉取失败（token 过期/网络异常）时静默降级，保留本地缓存昵称
             });
         }
     }
@@ -10653,6 +11351,9 @@ try { (function() {
                     auth.save(token, "");
                     api.profile().then(function(p) {
                         auth.save(token, p.name || "已登录", p.id || "");
+                    }).catch(function() {
+                        // profile 拉取失败不阻塞登录流程，继续进入搜题
+                    }).then(function() {
                         if (lastWord) search(lastWord); else openManual();
                     });
                 }).catch(function(err) {
@@ -10831,11 +11532,13 @@ try { (function() {
             }).then(function(b64) {
                 return ocrBase64(b64).then(function(txt) {
                     if (txt) onText(txt, mouse); else toast("未识别到文字，请重新框选");
+                }, function() {
+                    // OCR 失败与截图失败分开归因，避免两条 toast 同时弹出
+                    toast("OCR 服务请求失败，请稍后重试");
                 });
             }).catch(function(err) {
-                toast("OCR 服务请求失败，请稍后重试");
-                console.warn("[AI智脑Pro] Promise异常:", err.message);
                 toast("页面截图失败：" + (err && err.message || "未知原因"));
+                console.warn("[AI智脑Pro] Promise异常:", err && err.message);
             });
         }
         const MSG = "hc-cut-shot", ACK = "hc-cut-ack";
@@ -10848,7 +11551,7 @@ try { (function() {
                     ev.source.postMessage({
                         type: ACK
                     }, "*");
-                } catch (err) { console.warn("[AI智脑Pro] 异常:", e && e.message || 'error'); }
+                } catch (err) { console.warn("[AI智脑Pro] 异常:", err && err.message || 'error'); }
                 capture(d.left, d.top, d.width, d.height, {
                     x: d.left + d.width / 2,
                     y: d.top + d.height / 2

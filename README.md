@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.2.7  
+**版本**：v1.3.1  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -18,6 +18,9 @@
 | **划词搜题** | 选中页面文字即可唤起搜题面板，支持"换个模型重试" |
 | **截图 OCR 搜题** | 对加密/图片题截屏自动 OCR 识别后搜题 |
 | **作业/考试全自动** | 自动遍历题目、匹配答案、提交，支持重做模式覆盖旧答案 |
+| **模型列表拉取** | 添加模型时可用接口地址 + API Key 直接拉取 `/v1/models`，点选标签自动填入，免手敲模型名 |
+| **随堂练习** | 章节测验/随堂练习页（`/page/quiz/stu/answerQuestion`）自动作答，支持单选/多选/判断/填空/简答 |
+| **复合大题子题** | 阅读理解、材料题等「一大题多小题」结构，自动带大题背景逐小题作答 |
 | **视频/音频倍速** | 支持 1× / 1.25× / 1.5× / 2× 倍速播放 |
 
 ### 辅助功能
@@ -125,6 +128,25 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 ---
 
 ## 更新日志
+
+### v1.3.1
+- 修复「获取 BZM 题库 Key」按钮打开 `tk.swk.tw` 触发 `ERR_CERT_AUTHORITY_INVALID` 的问题，改为打开证书正常的 `https://tk.n1t.cn/user.php`（未登录会自动跳转登录页）
+- 修复 BZM 备用接口 `https://n1t.cn/api/search.php` 已 404 的问题，改为 `https://tk.n1t.cn/api/search.php`，并补充 HTTP 备用线路
+- BZM 取 Key 按钮改用 `GM_openInTab`，脚本管理器不允许弹窗时回退 `window.open`
+
+### v1.3.0
+- **修复：作业/考试答题完全失效**。`cxai_tidyStr` / `cxai_tidyQuestion` 原先定义在 `cxai_startDoQuizTimu` 函数体内，在严格模式下嵌套函数声明对外不可见，导致 `cxai_doHomeWork`、`cxai_missonExam`、`cxai_doExamPreview`、`cxai_doWork` 调用时抛 `ReferenceError`，整个答题流程静默中断。现已上移到顶层作用域。
+- 新增随堂练习/章节测验自动作答（`/page/quiz/stu/answerQuestion`）
+- 新增复合大题子题循环：阅读理解/材料题自动识别 `.reading_answer` 子题，带大题背景逐题作答，覆盖作业、手机版测验、考试、整卷预览四处
+- 子题题型判定采用 `qtype` 属性 + `.read_type` 文本双通道
+- 修复设置面板「字体解密」开关无效：调用的是不存在的 `cxai_decryptFonts`，已改为 `cxai_decryptFont`
+- **修复作业答题全部被跳过（“无法处理此题型：单选题”）**：`cxai_doHomeWork` 的题型映射表漏了 `[typeName]` 索引，`_type` 拿到的是整个映射对象而不是查表结果，`switch` 永不匹配任何 `case`，所有题型都落到 default 被跳过。另四处题型映射（`cxai_startDoQuizTimu` / `cxai_missonExam` / `cxai_getExamPreviewType` / `cxai_startDoWork`）正常。
+- 新增「获取模型列表」：添加/编辑模型时点按钮拉取 `/v1/models`，模型以标签形式列出，点击勾选后自动写入「模型名称」输入框；兼容 `{data:[{id}]}` / `{models:[{name}]}` / 裸数组 / `{data:{models}}` 多种响应格式，支持全选/清空/收起。
+- 划词搜题模块与上游 v3.0.3 对齐，修 4 处缺陷：
+  - `showLogin`：`api.profile()` 失败时既不捕获异常也不再继续，导致**登录成功后卡死**；现在失败也会继续进入搜题
+  - `capture`：OCR 失败没有独立 rejection handler，会同时弹出「OCR 服务请求失败」和「页面截图失败」两条 toast，并把 OCR 错误归因成截图错误；现已分开归因
+  - `openSettings`：`api.profile()` 缺 `.catch()`，token 过期时产生未处理的 Promise rejection
+  - 截图搜题 `message` 监听里 `catch (err)` 却引用 `e`，异常路径会抛 `ReferenceError`
 
 ### v1.2.7
 - 新增自动更新检查功能（面板按钮 + 菜单命令 + 24h 自动检查）
