@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.3
+// @version      1.3.4
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -6578,7 +6578,6 @@ function cxai_doHomeWork(index, TiMuList) {
             });
             cxai_logger('自动答题成功，准备切换下一题', 'green');
             setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * textareaList.length);
-            setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
         });
     }
 
@@ -6688,7 +6687,6 @@ function cxai_doHomeWork(index, TiMuList) {
                             setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         }, 300)
                     }
-                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 }).catch((_e) => {
                     cxai_logger('搜题失败，跳过此题', 'orange')
                     setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
@@ -6754,7 +6752,6 @@ function cxai_doHomeWork(index, TiMuList) {
                         cxai_logger('自动答题成功，准备切换下一题', 'green')
                     }
                     setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + _answerTmpArr.length * 600 + _matchedIndices.length * 600)
-                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 }).catch((_e) => {
                     cxai_logger('搜题失败，跳过此题', 'orange')
                     setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
@@ -6791,7 +6788,6 @@ function cxai_doHomeWork(index, TiMuList) {
                     });
                     setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _textareaList.length);
                     cxai_logger('自动答题成功，准备切换下一题', 'green');
-                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
                 }).catch((_e) => {
                     cxai_logger('搜题失败，跳过此题', 'orange')
                     setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
@@ -6850,7 +6846,6 @@ function cxai_doHomeWork(index, TiMuList) {
                         cxai_logger('自动答题成功，准备切换下一题', 'green')
                         setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                     }, 300)
-                    setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                 }).catch((_e) => {
                     cxai_logger('搜题失败，跳过此题', 'orange')
                     setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
@@ -6890,7 +6885,6 @@ function cxai_doHomeWork(index, TiMuList) {
                 });
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle.length);
-                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             }).catch((_e) => {
                 cxai_logger('搜题失败，跳过此题', 'orange')
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
@@ -6930,7 +6924,6 @@ function cxai_doHomeWork(index, TiMuList) {
                 });
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle5.length);
-                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
             break
         }
@@ -6967,7 +6960,6 @@ function cxai_doHomeWork(index, TiMuList) {
                 });
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle6.length);
-                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
             break
         }
@@ -6992,7 +6984,6 @@ function cxai_doHomeWork(index, TiMuList) {
                                 setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
                                 cxai_logger('使用富文本编辑器ID回答成功，准备切换下一题', 'green');
                                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time));
-                                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time);
                             });
                         } else {
                             cxai_logger('找到富文本编辑器但无法获取ID，改用普通方法', 'yellow');
@@ -7518,7 +7509,6 @@ function cxai_missonExam() {
             })
             cxai_logger('自动答题成功，准备切换下一题', 'green')
             cxai_toNextExam()
-            cxai_toNextExam()
         });
     }
 
@@ -7607,7 +7597,6 @@ function cxai_missonExam() {
                         }
                     }, 300)
                 }
-                cxai_toNextExam()
             });
             break
         }
@@ -7669,7 +7658,6 @@ function cxai_missonExam() {
                     }
                     cxai_toNextExam()
                 }
-                cxai_toNextExam()
             });
             break
         }
@@ -7706,7 +7694,6 @@ function cxai_missonExam() {
                     setTimeout(() => { UE.getEditor(_id).setContent(_answerTmpArr[i]) }, 300)
                 })
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
-                cxai_toNextExam()
                 cxai_toNextExam()
             });
             break
@@ -7761,7 +7748,6 @@ function cxai_missonExam() {
                     cxai_logger('此题已作答，准备切换下一题', 'green')
                     cxai_toNextExam()
                 }
-                cxai_toNextExam()
             });
             break
         }
@@ -7880,7 +7866,6 @@ function cxai_missonExam() {
                             setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
                             cxai_logger('材料题自动答题成功，准备切换下一题', 'green');
                             cxai_toNextExam();
-                            cxai_toNextExam();
                         });
                     } else {
                         cxai_logger('找到材料题编辑器但无法获取ID，尝试其他方法', 'yellow');
@@ -7914,7 +7899,6 @@ function cxai_missonExam() {
                         cxai_getAnswer(4, jdt).then((agrs) => {
                             setTimeout(() => { UE.getEditor(editorIdMatch).setContent(agrs) }, 300);
                             cxai_logger('使用脚本找到的编辑器ID回答成功，准备切换下一题', 'green');
-                            cxai_toNextExam();
                             cxai_toNextExam();
                         });
                     } else {
@@ -8105,6 +8089,7 @@ function cxai_doExamPreview(index, TiMuList) {
                     cxai_logger(prefix + '自动答题成功', 'green')
                     nextSoon()
                 }, 300)
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
@@ -8165,6 +8150,7 @@ function cxai_doExamPreview(index, TiMuList) {
                     cxai_logger(prefix + '自动答题成功', 'green')
                 }
                 nextSoon()
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
@@ -8208,6 +8194,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 })
                 cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
@@ -8259,6 +8246,7 @@ function cxai_doExamPreview(index, TiMuList) {
                     cxai_logger(prefix + '自动答题成功', 'green')
                     nextSoon()
                 }, 300)
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
@@ -8297,6 +8285,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 })
                 cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
@@ -8336,6 +8325,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 })
                 cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
@@ -8375,12 +8365,13 @@ function cxai_doExamPreview(index, TiMuList) {
                 })
                 cxai_logger(prefix + '自动答题成功', 'green')
                 nextSoon()
+            return;
+            }).catch(function (err) {
                 if (err && err._paused) {
                     setTimeout(function () { cxai_doExamPreview(index, TiMuList) }, 5000);
                     return;
                 }
                 nextSoon()
-            return;
             });
             return
         }
@@ -10277,7 +10268,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.3';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.4';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
