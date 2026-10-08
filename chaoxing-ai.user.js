@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.1
+// @version      1.3.2
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -440,10 +440,15 @@ function cxaiQueryBZMTiku(questionText, options, type) {
                 cleanOptions.push(bzm_tidyString(options[i]) || options[i]);
             }
         }
-        
+
+        var lastBzmError = null;
+
         function tryServer(index) {
             if (index >= BZM_API_SERVERS.length) {
-                console.log('[AI智脑Pro-BZM题库] 所有接口均失败');
+                console.warn('[AI智脑Pro-BZM题库] 所有接口均失败: ' + (lastBzmError || '无返回'));
+                try {
+                    if (typeof cxai_logger === 'function') cxai_logger('BZM 题库请求失败：' + (lastBzmError || '无返回'), 'orange');
+                } catch (_e) {}
                 _clearBankTimer();
                 return resolve(null);
             }
@@ -467,7 +472,9 @@ function cxaiQueryBZMTiku(questionText, options, type) {
                         if (res.code === 1 || res.code == 400) {
                             var answerData = null;
                             if (Array.isArray(res.data) && res.data.length > 0) {
-                                if (res.data[0].answer) {
+                                if (typeof res.data[0] === 'string') {
+                                    answerData = res.data;
+                                } else if (res.data[0].answer) {
                                     answerData = res.data[0].answer;
                                 } else if (res.data[0].question && res.data[0].question !== "抱歉无答案") {
                                     answerData = res.data[0].question;
@@ -478,11 +485,20 @@ function cxaiQueryBZMTiku(questionText, options, type) {
                                 answerData = res.data.answer;
                             }
 
-                            if (answerData && answerData !== "抱歉无答案" && !answerData.includes("无答案")) {
+                            if (Array.isArray(answerData)) {
+                                answerData = answerData.join('#');
+                            }
+
+                            if (answerData && answerData !== "抱歉无答案" && String(answerData).indexOf("无答案") === -1) {
                                 _clearBankTimer();
                                 bzm_currentServerIndex = index;
                                 return resolve([String(answerData)]);
                             }
+                        }
+                        if (res.code === 1 || res.code == 400) {
+                            lastBzmError = '题库无有效答案';
+                        } else {
+                            lastBzmError = res.message || res.msg || ('code=' + (res.code !== undefined ? res.code : 'unknown'));
                         }
                         // 当前接口无答案，尝试下一个
                         tryServer(index + 1);
@@ -10249,7 +10265,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.1';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.2';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {

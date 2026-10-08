@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.3.1  
+**版本**：v1.3.2  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -128,6 +128,11 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 ---
 
 ## 更新日志
+
+### v1.3.2
+- BZM 题库真实接口回包验证通过：`code:1`、`data:"钠盐食入过多"`，单选题文本可正确匹配到选项索引
+- 增加 BZM 失败诊断：`code:0/403/500` 会输出题库返回的 `message`/`msg`，不再只显示“所有接口均失败”
+- BZM 解析增强：兼容 `data` 为字符串数组的返回，数组答案用 `#` 拼接；无答案判断改为安全字符串转换
 
 ### v1.3.1
 - 修复「获取 BZM 题库 Key」按钮打开 `tk.swk.tw` 触发 `ERR_CERT_AUTHORITY_INVALID` 的问题，改为打开证书正常的 `https://tk.n1t.cn/user.php`（未登录会自动跳转登录页）
