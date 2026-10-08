@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.2
+// @version      1.3.3
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -230,31 +230,43 @@ function cxai_escapeHtml(str) {
 }
 
 
-// =============== BZM 题库（高质量题库）集成 ===============
-// 注意：BZM 需要 API Key，请先在面板获取
+// =============== N1搜题（高质量题库）集成 ===============
+// 注意：N1 需要 API Key，请先在面板获取
 
-var BZM_API_SERVERS = [
-    { url: "https://soti.ucuc.net/api/search.php", name: "BZM主接口" },
-    { url: "https://tk.n1t.cn/api/search.php", name: "BZM备用1（N1）" },
-    { url: "http://tk.n1t.cn/api/search.php", name: "BZM备用2（HTTP）" }
+var N1_API_SERVERS = [
+    { url: "https://soti.ucuc.net/api/search.php", name: "N1搜题主接口" },
+    { url: "https://tk.n1t.cn/api/search.php", name: "N1搜题备用1" },
+    { url: "http://tk.n1t.cn/api/search.php", name: "N1搜题备用2（HTTP）" }
 ];
-var bzm_currentServerIndex = 0;
+var n1_currentServerIndex = 0;
 
-function bzm_getCurrentApiUrl() {
-    return BZM_API_SERVERS[bzm_currentServerIndex].url;
+function n1_getCurrentApiUrl() {
+    return N1_API_SERVERS[n1_currentServerIndex].url;
 }
 
-function bzm_getApiKey() {
-    return localStorage.getItem('cxaiSetting.bzmApiKey') || '';
+function n1_getApiKey() {
+    return localStorage.getItem('cxaiSetting.n1ApiKey') || '';
 }
 
-function bzm_hasApiKey() {
-    var key = bzm_getApiKey();
+function n1_hasApiKey() {
+    var key = n1_getApiKey();
     return key && key.trim() !== '';
 }
 
-// BZM 题库选项清理
-function bzm_cleanOptionText(text) {
+// 旧 BZM 配置迁移到 N1搜题，避免用户已填的 Key 丢失
+try {
+    if (!localStorage.getItem('cxaiSetting.n1ApiKey')) {
+        var _oldN1Key = localStorage.getItem('cxaiSetting.bzmApiKey');
+        if (_oldN1Key) localStorage.setItem('cxaiSetting.n1ApiKey', _oldN1Key);
+    }
+    if (localStorage.getItem('cxaiSetting.n1Enabled') === null) {
+        var _oldN1Enabled = localStorage.getItem('cxaiSetting.bzmEnabled');
+        if (_oldN1Enabled !== null) localStorage.setItem('cxaiSetting.n1Enabled', _oldN1Enabled);
+    }
+} catch (_e) {}
+
+// N1搜题选项清理
+function n1_cleanOptionText(text) {
     if (!text) return text;
     var cleaned = text.replace(/<[^>]*>/g, '');
     cleaned = cleaned.replace(/^[A-Z][\s]*[.、．）)\s]+/, '');
@@ -264,36 +276,36 @@ function bzm_cleanOptionText(text) {
     return cleaned.trim();
 }
 
-// BZM 题库字符串清理
-function bzm_tidyString(s) {
+// N1搜题字符串清理
+function n1_tidyString(s) {
     if (!s) return null;
     var cleaned = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').trim().replace(/&nbsp;/g, '');
-    return bzm_cleanOptionText(cleaned);
+    return n1_cleanOptionText(cleaned);
 }
 
-function bzm_tidyQuestion(s) {
+function n1_tidyQuestion(s) {
     if (!s) return null;
     var cleaned = s.replace(/<(?!img).*?>/g, "").replace(/^【.*?】\s*/, '').replace(/\s*（\d+\.\d+分）$/, '').replace(/^\d+[.、]/, '').trim();
-    return bzm_cleanOptionText(cleaned);
+    return n1_cleanOptionText(cleaned);
 }
 
-function bzm_normalizeForCompare(text) {
+function n1_normalizeForCompare(text) {
     if (!text) return '';
     return text.toUpperCase().replace(/[^\u4e00-\u9fa5A-Z0-9]/g, '').trim();
 }
 
-function bzm_splitAnswer(answer) {
+function n1_splitAnswer(answer) {
     if (!answer) return [];
     var parts = answer.split(/[#]+/).map(function(a) { return a.trim(); }).filter(function(a) { return a !== ''; });
     if (parts.length === 0 && answer.trim() !== '') return [answer.trim()];
     return parts;
 }
 
-// =============== BZM 题库答案处理 ===============
-// 单选题/多选题/判断题/填空题/简答题 的匹配逻辑与 BZM 原版保持一致
-function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
+// =============== N1搜题答案处理 ===============
+// 单选题/多选题/判断题/填空题/简答题 的匹配逻辑与 N1 原版保持一致
+function cxaiProcessN1Answer(answerList, optionsArr, type) {
     if (!answerList || answerList.length === 0) {
-        console.log('[AI智脑Pro-BZM题库] 答案列表为空');
+        console.log('[AI智脑Pro-N1搜题] 答案列表为空');
         return null;
     }
 
@@ -336,15 +348,15 @@ function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
             continue;
         }
 
-        // ★ BZM 格式：选项文本用 # 分隔（如 "选项A文本#选项B文本"）
+        // ★ N1 格式：选项文本用 # 分隔（如 "选项A文本#选项B文本"）
         if (ans.indexOf('#') !== -1 && optionsArr && optionsArr.length > 0) {
             var parts = ans.split('#');
             for (var pi = 0; pi < parts.length; pi++) {
                 var partText = parts[pi].trim();
                 if (!partText) continue;
-                var partNorm = bzm_normalizeForCompare(partText);
+                var partNorm = n1_normalizeForCompare(partText);
                 for (var pj = 0; pj < optionsArr.length; pj++) {
-                    var optNorm = bzm_normalizeForCompare(optionsArr[pj]);
+                    var optNorm = n1_normalizeForCompare(optionsArr[pj]);
                     if (optNorm === partNorm || optNorm.indexOf(partNorm) !== -1 || partNorm.indexOf(optNorm) !== -1) {
                         if (targetIndices.indexOf(pj) === -1) targetIndices.push(pj);
                         break;
@@ -354,10 +366,10 @@ function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
             if (targetIndices.length > 0) continue;
         }
 
-        // ★ 多选题：先用 bzm_splitAnswer 拆分
+        // ★ 多选题：先用 n1_splitAnswer 拆分
         var ansParts = null;
         if (type === 1) {
-            ansParts = bzm_splitAnswer(ans);
+            ansParts = n1_splitAnswer(ans);
         }
 
         // 数字字符串（如 "2"）也当索引
@@ -371,9 +383,9 @@ function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
 
         // 文本匹配
         if (optionsArr) {
-            var normalizedAns = bzm_normalizeForCompare(ans);
+            var normalizedAns = n1_normalizeForCompare(ans);
             for (var j = 0; j < optionsArr.length; j++) {
-                var normalizedOpt = bzm_normalizeForCompare(optionsArr[j]);
+                var normalizedOpt = n1_normalizeForCompare(optionsArr[j]);
                 if (normalizedOpt === normalizedAns || normalizedOpt.indexOf(normalizedAns) !== -1 || normalizedAns.indexOf(normalizedOpt) !== -1) {
                     targetIndices.push(j);
                     break;
@@ -386,9 +398,9 @@ function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
             for (var ak = 0; ak < ansParts.length; ak++) {
                 var partAns = ansParts[ak];
                 if (!partAns) continue;
-                var partAnsNorm = bzm_normalizeForCompare(partAns);
+                var partAnsNorm = n1_normalizeForCompare(partAns);
                 for (var aj = 0; aj < optionsArr.length; aj++) {
-                    var partOptNorm = bzm_normalizeForCompare(optionsArr[aj]);
+                    var partOptNorm = n1_normalizeForCompare(optionsArr[aj]);
                     if (partOptNorm === partAnsNorm || partOptNorm.indexOf(partAnsNorm) !== -1 || partAnsNorm.indexOf(partOptNorm) !== -1) {
                         if (targetIndices.indexOf(aj) === -1) targetIndices.push(aj);
                         break;
@@ -399,11 +411,11 @@ function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
     }
 
     if (targetIndices.length === 0) {
-        console.log('[AI智脑Pro-BZM题库] 无法匹配任何选项');
+        console.log('[AI智脑Pro-N1搜题] 无法匹配任何选项');
         return null;
     }
 
-    console.log('[AI智脑Pro-BZM题库] 最终匹配索引:', targetIndices);
+    console.log('[AI智脑Pro-N1搜题] 最终匹配索引:', targetIndices);
 
     // 单选：返回单个索引
     if (type === 0) return targetIndices[0];
@@ -418,14 +430,14 @@ function cxaiProcessBZMAnswer(answerList, optionsArr, type) {
     return targetIndices[0];
 }
 
-// BZM 题库查询函数
-function cxaiQueryBZMTiku(questionText, options, type) {
-    // BZM 内部无需操作外层全局超时定时器，定义空函数避免 ReferenceError
+// N1搜题查询函数
+function cxaiQueryN1Tiku(questionText, options, type) {
+    // N1 内部无需操作外层全局超时定时器，定义空函数避免 ReferenceError
     var _clearBankTimer = function() {};
     return new Promise(function(resolve) {
-        var apiKey = bzm_getApiKey();
+        var apiKey = n1_getApiKey();
         if (!apiKey || apiKey.trim() === '') {
-            console.log('[AI智脑Pro-BZM题库] 未配置 API Key，跳过');
+            console.log('[AI智脑Pro-N1搜题] 未配置 API Key，跳过');
             return resolve(null);
         }
         
@@ -433,32 +445,32 @@ function cxaiQueryBZMTiku(questionText, options, type) {
         var typeText = typeMap[type] || '单选题';
         
         // 清理题目和选项
-        var cleanQuestion = bzm_tidyQuestion(questionText) || questionText;
+        var cleanQuestion = n1_tidyQuestion(questionText) || questionText;
         var cleanOptions = [];
         if (options && options.length > 0) {
             for (var i = 0; i < options.length; i++) {
-                cleanOptions.push(bzm_tidyString(options[i]) || options[i]);
+                cleanOptions.push(n1_tidyString(options[i]) || options[i]);
             }
         }
 
-        var lastBzmError = null;
+        var lastN1Error = null;
 
         function tryServer(index) {
-            if (index >= BZM_API_SERVERS.length) {
-                console.warn('[AI智脑Pro-BZM题库] 所有接口均失败: ' + (lastBzmError || '无返回'));
+            if (index >= N1_API_SERVERS.length) {
+                console.warn('[AI智脑Pro-N1搜题] 所有接口均失败: ' + (lastN1Error || '无返回'));
                 try {
-                    if (typeof cxai_logger === 'function') cxai_logger('BZM 题库请求失败：' + (lastBzmError || '无返回'), 'orange');
+                    if (typeof cxai_logger === 'function') cxai_logger('N1搜题请求失败：' + (lastN1Error || '无返回'), 'orange');
                 } catch (_e) {}
                 _clearBankTimer();
                 return resolve(null);
             }
-            var apiUrl = BZM_API_SERVERS[index].url;
+            var apiUrl = N1_API_SERVERS[index].url;
             var formData = 'question=' + encodeURIComponent(cleanQuestion) + '&key=' + encodeURIComponent(apiKey) + '&type=' + encodeURIComponent(typeText);
             if (cleanOptions.length > 0) {
                 formData += '&options=' + encodeURIComponent(JSON.stringify(cleanOptions));
             }
             
-            console.log('[AI智脑Pro-BZM题库] 请求接口' + (index + 1) + ':', apiUrl);
+            console.log('[AI智脑Pro-N1搜题] 请求接口' + (index + 1) + ':', apiUrl);
             GM_xmlhttpRequest({
                 method: 'POST',
                 url: apiUrl,
@@ -491,30 +503,30 @@ function cxaiQueryBZMTiku(questionText, options, type) {
 
                             if (answerData && answerData !== "抱歉无答案" && String(answerData).indexOf("无答案") === -1) {
                                 _clearBankTimer();
-                                bzm_currentServerIndex = index;
+                                n1_currentServerIndex = index;
                                 return resolve([String(answerData)]);
                             }
                         }
                         if (res.code === 1 || res.code == 400) {
-                            lastBzmError = '题库无有效答案';
+                            lastN1Error = '题库无有效答案';
                         } else {
-                            lastBzmError = res.message || res.msg || ('code=' + (res.code !== undefined ? res.code : 'unknown'));
+                            lastN1Error = res.message || res.msg || ('code=' + (res.code !== undefined ? res.code : 'unknown'));
                         }
                         // 当前接口无答案，尝试下一个
                         tryServer(index + 1);
                     } catch(e) {
-                        console.warn('[AI智脑Pro-BZM题库] 解析失败:', e.message);
+                        console.warn('[AI智脑Pro-N1搜题] 解析失败:', e.message);
                         _clearBankTimer();
                         tryServer(index + 1);
                     }
                 },
                 onerror: function() {
-                    console.warn('[AI智脑Pro-BZM题库] 接口' + (index + 1) + '网络错误');
+                    console.warn('[AI智脑Pro-N1搜题] 接口' + (index + 1) + '网络错误');
                     _clearBankTimer();
                     tryServer(index + 1);
                 },
                 ontimeout: function() {
-                    console.warn('[AI智脑Pro-BZM题库] 接口' + (index + 1) + '超时');
+                    console.warn('[AI智脑Pro-N1搜题] 接口' + (index + 1) + '超时');
                     _clearBankTimer();
                     tryServer(index + 1);
                 }
@@ -3083,11 +3095,11 @@ function cxai_showBox() {
                         </div>
                         <!-- 题库开关 -->
                         <div class="cxai-panel-row" style="margin-top:8px">
-                            <div><div class="cxai-panel-label">BZM 题库</div><div class="cxai-panel-desc">高质量题库，需要 API Key</div></div>
-                            <div class="cxai-switch on" data-key="bzmEnabled"></div>
+                            <div><div class="cxai-panel-label">N1搜题</div><div class="cxai-panel-desc">高质量题库，需要 API Key</div></div>
+                            <div class="cxai-switch on" data-key="n1Enabled"></div>
                         </div>
-                        <input class="cxai-input" type="password" id="cxaiSetting.bzmApiKey" placeholder="BZM API Key" autocomplete="new-password">
-                        <button class="cxai-btn-primary" style="margin-top:7px;width:100%" id="cxai-get-bzm-key-btn" title="打开 N1 题库用户中心，登录后在 API 密钥区域复制 Key">获取 BZM 题库 Key</button>
+                        <input class="cxai-input" type="password" id="cxaiSetting.n1ApiKey" placeholder="N1搜题 API Key" autocomplete="new-password">
+                        <button class="cxai-btn-primary" style="margin-top:7px;width:100%" id="cxai-get-n1-key-btn" title="打开 N1搜题用户中心，登录后在 API 密钥区域复制 Key">获取 N1搜题 Key</button>
                         <div class="cxai-panel-desc" style="margin-top:5px;line-height:1.5">登录/注册后在用户中心复制 API Key，回到本页粘贴即可</div>
                         <div class="cxai-panel-row" style="margin-top:8px">
                             <div><div class="cxai-panel-label">icodef.com 题库</div><div class="cxai-panel-desc">兜底题库，无需 Key，格式简单稳定</div></div>
@@ -3352,7 +3364,7 @@ function cxai_showBox() {
                 'unlockPaste': 'cxaiSetting.unlockPaste',
                 'searchEnabled': 'cxaiSetting.searchEnabled',
                 'decrypt': 'cxaiSetting.decrypt',
-                'bzmEnabled': 'cxaiSetting.bzmEnabled',
+                'n1Enabled': 'cxaiSetting.n1Enabled',
                 'icodefEnabled': 'cxaiSetting.icodefEnabled',
                 'dxsEnabled': 'cxaiSetting.dxsEnabled'
             };
@@ -3369,7 +3381,7 @@ function cxai_showBox() {
                     sw.classList.remove('on');
                 } else {
                     // 默认值：开关 UI 与 localStorage 同步写入，避免"看起来开、实际没开"
-                    var def = (inputId === 'cxaiSetting.searchEnabled' || inputId === 'cxaiSetting.fuzzyMatch' || inputId === 'cxaiSetting.alterTitle' || inputId === 'cxaiSetting.decrypt' || inputId === 'cxaiSetting.antiDetect' || inputId === 'cxaiSetting.icodefEnabled' || inputId === 'cxaiSetting.bzmEnabled' || inputId === 'cxaiSetting.dxsEnabled') ? true : false;
+                    var def = (inputId === 'cxaiSetting.searchEnabled' || inputId === 'cxaiSetting.fuzzyMatch' || inputId === 'cxaiSetting.alterTitle' || inputId === 'cxaiSetting.decrypt' || inputId === 'cxaiSetting.antiDetect' || inputId === 'cxaiSetting.icodefEnabled' || inputId === 'cxaiSetting.n1Enabled' || inputId === 'cxaiSetting.dxsEnabled') ? true : false;
                     if (def) {
                         sw.classList.add('on');
                         try { localStorage.setItem(inputId, 'true'); } catch (_) { console.warn("[AI智脑Pro] 异常:", _.message); }
@@ -3413,13 +3425,13 @@ function cxai_showBox() {
                         cxai_logger(checked ? '重做模式已开启' : '重做模式已关闭', checked ? 'green' : 'gray');
                     } else if (inputId === 'cxaiSetting.examTurn') {
                         cxai_logger(checked ? '考试自动跳转已开启' : '考试自动跳转已关闭', checked ? 'green' : 'gray');
-                    } else if (inputId === 'cxaiSetting.bzmEnabled') {
-                        cxai_logger(checked ? 'BZM 题库已启用' : 'BZM 题库已关闭', checked ? 'green' : 'gray');
-                        // 关闭时隐藏 BZM API Key 输入框和获取按钮
-                        var bzmInput = _cxaiFindEl('cxaiSetting.bzmApiKey');
-                        var bzmBtn = _cxaiFindEl('cxai-get-bzm-key-btn');
-                        if (bzmInput) bzmInput.style.display = checked ? '' : 'none';
-                        if (bzmBtn) bzmBtn.style.display = checked ? '' : 'none';
+                    } else if (inputId === 'cxaiSetting.n1Enabled') {
+                        cxai_logger(checked ? 'N1搜题已启用' : 'N1搜题已关闭', checked ? 'green' : 'gray');
+                        // 关闭时隐藏 N1搜题 API Key 输入框和获取按钮
+                        var n1Input = _cxaiFindEl('cxaiSetting.n1ApiKey');
+                        var n1Btn = _cxaiFindEl('cxai-get-n1-key-btn');
+                        if (n1Input) n1Input.style.display = checked ? '' : 'none';
+                        if (n1Btn) n1Btn.style.display = checked ? '' : 'none';
                     } else if (inputId === 'cxaiSetting.icodefEnabled') {
                         cxai_logger(checked ? 'icodef 题库已启用' : 'icodef 题库已关闭', checked ? 'green' : 'gray');
                     } else if (inputId === 'cxaiSetting.dxsEnabled') {
@@ -3438,13 +3450,13 @@ function cxai_showBox() {
                 var _dxsEnabledInit = localStorage.getItem('cxaiSetting.dxsEnabled');
                 _dxsLoginAreaInit.style.display = (_dxsEnabledInit === 'false') ? 'none' : '';
             }
-            // BZM API Key 输入框和按钮初始显示/隐藏（与 bzmEnabled 开关同步）
-            var _bzmInputInit = _cxaiFindEl('cxaiSetting.bzmApiKey');
-            var _bzmBtnInit = _cxaiFindEl('cxai-get-bzm-key-btn');
-            if (_bzmInputInit) _bzmInputInit.style.display = (localStorage.getItem('cxaiSetting.bzmEnabled') === 'false') ? 'none' : '';
-            if (_bzmBtnInit) _bzmBtnInit.style.display = (localStorage.getItem('cxaiSetting.bzmEnabled') === 'false') ? 'none' : '';
+            // N1搜题 API Key 输入框和按钮初始显示/隐藏（与 n1Enabled 开关同步）
+            var _n1InputInit = _cxaiFindEl('cxaiSetting.n1ApiKey');
+            var _n1BtnInit = _cxaiFindEl('cxai-get-n1-key-btn');
+            if (_n1InputInit) _n1InputInit.style.display = (localStorage.getItem('cxaiSetting.n1Enabled') === 'false') ? 'none' : '';
+            if (_n1BtnInit) _n1BtnInit.style.display = (localStorage.getItem('cxaiSetting.n1Enabled') === 'false') ? 'none' : '';
             // 输出题库开关初始状态，方便排查"跳过"问题
-            var _bankSwitches = ['icodefEnabled', 'bzmEnabled', 'dxsEnabled'];
+            var _bankSwitches = ['icodefEnabled', 'n1Enabled', 'dxsEnabled'];
             var _bankStatus = _bankSwitches.map(function(k) {
                 return k + '=' + (localStorage.getItem('cxaiSetting.' + k) === 'true');
             }).join(' | ');
@@ -3549,27 +3561,27 @@ function cxai_showBox() {
                     cxai_logger('AI 答题间隔已更新为 ' + v + ' 秒', 'green');
                 });
             }
-            // BZM API Key
-            var bzmApiKeyInput = _cxaiFindEl('cxaiSetting.bzmApiKey');
-            if (bzmApiKeyInput) {
-                bzmApiKeyInput.value = localStorage.getItem('cxaiSetting.bzmApiKey') || '';
-                bzmApiKeyInput.addEventListener('input', function () {
-                    localStorage.setItem('cxaiSetting.bzmApiKey', bzmApiKeyInput.value);
+            // N1搜题 API Key
+            var n1ApiKeyInput = _cxaiFindEl('cxaiSetting.n1ApiKey');
+            if (n1ApiKeyInput) {
+                n1ApiKeyInput.value = localStorage.getItem('cxaiSetting.n1ApiKey') || '';
+                n1ApiKeyInput.addEventListener('input', function () {
+                    localStorage.setItem('cxaiSetting.n1ApiKey', n1ApiKeyInput.value);
                 });
             }
-            // BZM 获取 Key 按钮
-            var getBzmKeyBtn = _cxaiFindEl('cxai-get-bzm-key-btn');
-            if (getBzmKeyBtn) {
-                getBzmKeyBtn.addEventListener('click', function () {
-                    var bzmKeyPage = 'https://tk.n1t.cn/user.php';
+            // N1 获取 Key 按钮
+            var getN1KeyBtn = _cxaiFindEl('cxai-get-n1-key-btn');
+            if (getN1KeyBtn) {
+                getN1KeyBtn.addEventListener('click', function () {
+                    var n1KeyPage = 'https://tk.n1t.cn/user.php';
                     try {
                         if (typeof GM_openInTab === 'function') {
-                            GM_openInTab(bzmKeyPage, { active: true });
+                            GM_openInTab(n1KeyPage, { active: true });
                         } else {
-                            window.open(bzmKeyPage, '_blank');
+                            window.open(n1KeyPage, '_blank');
                         }
                     } catch (e) {
-                        window.open(bzmKeyPage, '_blank');
+                        window.open(n1KeyPage, '_blank');
                     }
                 });
             }
@@ -8704,10 +8716,10 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
     return new Promise(function (resolve) {
         // 题库各自独立开关，实时读取 localStorage
         var icodefOn = localStorage.getItem('cxaiSetting.icodefEnabled') === 'true';
-        var bzmOn = localStorage.getItem('cxaiSetting.bzmEnabled') === 'true';
+        var n1On = localStorage.getItem('cxaiSetting.n1Enabled') === 'true';
         var dxsOn = localStorage.getItem('cxaiSetting.dxsEnabled') === 'true';
-        console.log('[题库开关] icodef=' + icodefOn + ' BZM=' + bzmOn + ' 大学搜题酱=' + dxsOn);
-        if (!icodefOn && !bzmOn && !dxsOn) {
+        console.log('[题库开关] icodef=' + icodefOn + ' N1=' + n1On + ' 大学搜题酱=' + dxsOn);
+        if (!icodefOn && !n1On && !dxsOn) {
             // 题库全部关闭时立即跳过，确保下一题立即生效
             console.log('[AI智脑Pro] 题库全部关闭，返回 null');
             return resolve(null);
@@ -8772,10 +8784,10 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
             });
         }
 
-        // 串行执行题库：icodef → BZM → 大学搜题酱，避免并发混乱
+        // 串行执行题库：icodef → N1 → 大学搜题酱，避免并发混乱
         // 1. icodef（免费兜底）
         function _tryIcodef() {
-            if (!icodefOn) { console.log('[AI智脑Pro] icodef 关闭，跳过'); _tryBZM(); return; }
+            if (!icodefOn) { console.log('[AI智脑Pro] icodef 关闭，跳过'); _tryN1(); return; }
             console.log('[AI智脑Pro] 开始请求 icodef 题库');
             _requestIcodefDirect(function(icodefAnswers) {
                 if (icodefAnswers) {
@@ -8786,37 +8798,37 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                         console.log('[AI智脑Pro] icodef 答案匹配成功，processed:', _bankProcessed);
                         return resolve(icodefAnswers);
                     }
-                    console.log('[AI智脑Pro题库降级] icodef 命中但匹配失败，降级到 BZM');
+                    console.log('[AI智脑Pro题库降级] icodef 命中但匹配失败，降级到 N1');
                 } else {
-                    console.log('[AI智脑Pro] icodef 无答案，降级到 BZM');
+                    console.log('[AI智脑Pro] icodef 无答案，降级到 N1');
                 }
-                _tryBZM();
+                _tryN1();
             });
         }
 
-        // 2. BZM（需要 API Key，高质量）
-        function _tryBZM() {
-            if (!bzmOn) { console.log('[AI智脑Pro] BZM 关闭，跳过'); _tryDxs(); return; }
-            console.log('[AI智脑Pro] 开始请求 BZM 题库');
+        // 2. N1（需要 API Key，高质量）
+        function _tryN1() {
+            if (!n1On) { console.log('[AI智脑Pro] N1搜题关闭，跳过'); _tryDxs(); return; }
+            console.log('[AI智脑Pro] 开始请求 N1搜题');
             setTimeout(function() {
-                cxaiQueryBZMTiku(questionText, options, type).then(function(bzmAnswers) {
-                    console.log('[AI智脑Pro] BZM 返回:', JSON.stringify(bzmAnswers).slice(0, 200));
-                    if (bzmAnswers && bzmAnswers.length > 0) {
-                        console.log('[AI智脑Pro题库] BZM 命中答案:', JSON.stringify(bzmAnswers).slice(0, 200));
-                        var bzmProcessed = cxaiProcessBZMAnswer(bzmAnswers, options, type);
-                        if (bzmProcessed !== null && bzmProcessed !== undefined) {
-                            console.log('[AI智脑Pro题库] BZM 已匹配，processed=' + JSON.stringify(bzmProcessed) + '，准备 resolve');
-                            resolve({ __bzmProcessed: true, result: bzmProcessed });
+                cxaiQueryN1Tiku(questionText, options, type).then(function(n1Answers) {
+                    console.log('[AI智脑Pro] N1搜题返回:', JSON.stringify(n1Answers).slice(0, 200));
+                    if (n1Answers && n1Answers.length > 0) {
+                        console.log('[AI智脑Pro题库] N1搜题命中答案:', JSON.stringify(n1Answers).slice(0, 200));
+                        var n1Processed = cxaiProcessN1Answer(n1Answers, options, type);
+                        if (n1Processed !== null && n1Processed !== undefined) {
+                            console.log('[AI智脑Pro题库] N1搜题已匹配，processed=' + JSON.stringify(n1Processed) + '，准备 resolve');
+                            resolve({ __n1Processed: true, result: n1Processed });
                         } else {
-                            console.log('[AI智脑Pro题库降级] BZM 命中但匹配失败，降级到大学搜题酱');
+                            console.log('[AI智脑Pro题库降级] N1 命中但匹配失败，降级到大学搜题酱');
                             _tryDxs();
                         }
                     } else {
-                        console.log('[AI智脑Pro题库未命中] BZM 无答案，降级到大学搜题酱');
+                        console.log('[AI智脑Pro题库未命中] N1搜题无答案，降级到大学搜题酱');
                         _tryDxs();
                     }
                 }).catch(function(e) {
-                    console.log('[AI智脑Pro题库异常] BZM 请求异常:', e.message);
+                    console.log('[AI智脑Pro题库异常] N1搜题请求异常:', e.message);
                     _tryDxs();
                 });
             }, 500);
@@ -9084,7 +9096,7 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
             }).catch(function(e) { console.warn('[AI智脑Pro] 大学搜题酱请求异常:', e.message); _clearBankTimer(); resolve(null); });
         }
 
-        // 启动题库查询链：icodef → BZM → 大学搜题酱
+        // 启动题库查询链：icodef → N1 → 大学搜题酱
         _tryIcodef();
     })
 }
@@ -9434,7 +9446,7 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
 
         // 检查是否有任何答案来源（题库 或 AI Provider/代理）
         var _hasQuestionBank = localStorage.getItem('cxaiSetting.icodefEnabled') === 'true'
-            || localStorage.getItem('cxaiSetting.bzmEnabled') === 'true'
+            || localStorage.getItem('cxaiSetting.n1Enabled') === 'true'
             || localStorage.getItem('cxaiSetting.dxsEnabled') === 'true';
         var _hasAI = !!(_useProvider);
         if (!_hasQuestionBank && !_hasAI) {
@@ -9842,12 +9854,12 @@ function _doRequest(url, headers, body, format) {
             }
 
             var allAnswers = [];
-            var bzmProcessed = null;
+            var n1Processed = null;
 
-            // ★ 兼容 BZM 已处理结果（{ __bzmProcessed: true, result: ... }）
-            if (tpAnswers && tpAnswers.__bzmProcessed) {
-                bzmProcessed = tpAnswers.result;
-                cxai_logger('📚 BZM 题库命中', 'purple');
+            // ★ 兼容 N1 已处理结果（{ __n1Processed: true, result: ... }）
+            if (tpAnswers && tpAnswers.__n1Processed) {
+                n1Processed = tpAnswers.result;
+                cxai_logger('📚 N1搜题命中', 'purple');
             } else if (tpAnswers && Array.isArray(tpAnswers)) {
                 allAnswers.push.apply(allAnswers, tpAnswers);
                 var _bankSource = tpAnswers.__source || '题库';
@@ -9857,7 +9869,7 @@ function _doRequest(url, headers, body, format) {
                 cxai_logger('   原始答案: ' + _rawAnswers.slice(0, 100), 'gray');
             }
 
-            if (allAnswers.length === 0 && !bzmProcessed) {
+            if (allAnswers.length === 0 && !n1Processed) {
 
                 // AI 答题总开关：关闭时不再 fallback AI，直接跳过
                 if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') === 'false') {
@@ -9873,9 +9885,9 @@ function _doRequest(url, headers, body, format) {
 
             var processed = null;
 
-            if (bzmProcessed !== null && bzmProcessed !== undefined) {
+            if (n1Processed !== null && n1Processed !== undefined) {
 
-                processed = bzmProcessed;
+                processed = n1Processed;
 
             } else {
 
@@ -10265,7 +10277,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.2';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.3';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {

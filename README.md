@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.3.2  
+**版本**：v1.3.3  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -129,15 +129,19 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 
 ## 更新日志
 
+### v1.3.3
+- 题库模块由 BZM 全面更名为 N1搜题，UI、日志、函数名和配置键统一为 N1
+- 自动迁移旧配置：`cxaiSetting.bzmApiKey` → `cxaiSetting.n1ApiKey`，`cxaiSetting.bzmEnabled` → `cxaiSetting.n1Enabled`，已填 Key 不会丢
+
 ### v1.3.2
-- BZM 题库真实接口回包验证通过：`code:1`、`data:"钠盐食入过多"`，单选题文本可正确匹配到选项索引
-- 增加 BZM 失败诊断：`code:0/403/500` 会输出题库返回的 `message`/`msg`，不再只显示“所有接口均失败”
-- BZM 解析增强：兼容 `data` 为字符串数组的返回，数组答案用 `#` 拼接；无答案判断改为安全字符串转换
+- N1搜题真实接口回包验证通过：`code:1`、`data:"钠盐食入过多"`，单选题文本可正确匹配到选项索引
+- 增加 N1搜题失败诊断：`code:0/403/500` 会输出题库返回的 `message`/`msg`，不再只显示“所有接口均失败”
+- N1搜题解析增强：兼容 `data` 为字符串数组的返回，数组答案用 `#` 拼接；无答案判断改为安全字符串转换
 
 ### v1.3.1
-- 修复「获取 BZM 题库 Key」按钮打开 `tk.swk.tw` 触发 `ERR_CERT_AUTHORITY_INVALID` 的问题，改为打开证书正常的 `https://tk.n1t.cn/user.php`（未登录会自动跳转登录页）
-- 修复 BZM 备用接口 `https://n1t.cn/api/search.php` 已 404 的问题，改为 `https://tk.n1t.cn/api/search.php`，并补充 HTTP 备用线路
-- BZM 取 Key 按钮改用 `GM_openInTab`，脚本管理器不允许弹窗时回退 `window.open`
+- 修复「获取 N1搜题 Key」按钮打开 `tk.swk.tw` 触发 `ERR_CERT_AUTHORITY_INVALID` 的问题，改为打开证书正常的 `https://tk.n1t.cn/user.php`（未登录会自动跳转登录页）
+- 修复 N1搜题备用接口 `https://n1t.cn/api/search.php` 已 404 的问题，改为 `https://tk.n1t.cn/api/search.php`，并补充 HTTP 备用线路
+- N1搜题取 Key 按钮改用 `GM_openInTab`，脚本管理器不允许弹窗时回退 `window.open`
 
 ### v1.3.0
 - **修复：作业/考试答题完全失效**。`cxai_tidyStr` / `cxai_tidyQuestion` 原先定义在 `cxai_startDoQuizTimu` 函数体内，在严格模式下嵌套函数声明对外不可见，导致 `cxai_doHomeWork`、`cxai_missonExam`、`cxai_doExamPreview`、`cxai_doWork` 调用时抛 `ReferenceError`，整个答题流程静默中断。现已上移到顶层作用域。
