@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.3.4  
+**版本**：v1.3.5  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -13,7 +13,7 @@
 ### 核心功能
 | 功能 | 说明 |
 |---|---|
-| **AI 自动答题** | 内置多个 AI Provider（OpenAI 兼容 / 文心一言 ERNIE 等），支持自定义 API Key 与模型，自动解析题目并作答 |
+| **AI 自动答题** | 支持自定义 OpenAI 兼容接口（API 地址 + Key + 模型），可一键拉取模型列表，自动解析题目并作答 |
 | **题库双引擎** | 内置题库 + AI 兜底，题库无结果时自动切换 AI 作答 |
 | **划词搜题** | 选中页面文字即可唤起搜题面板，支持"换个模型重试" |
 | **截图 OCR 搜题** | 对加密/图片题截屏自动 OCR 识别后搜题 |
@@ -57,7 +57,7 @@
 
 ### AI 模型配置
 1. 点击面板 **"模型管理"**
-2. 添加 Provider（支持 OpenAI 兼容格式 / ERNIE 等）
+2. 添加 Provider（OpenAI 兼容格式）
 3. 填入 API Key，选择模型
 4. 多个 Provider 可设置优先级，AI 失败时自动切换下一个
 
@@ -128,6 +128,18 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 ---
 
 ## 更新日志
+
+### v1.3.5
+- **修复桌面测验（`cxai_startDoWork`）判断题被处理两遍**：case 3 结尾漏写 `break`，控制流贯穿进 case 4 的填空题体，导致判断题会发两次 AI 请求并推进两次。已补上 `break`（附回归 harness：改前 `getAnswer=2`，改后 `getAnswer=1`）。
+- **修复题库命中但答案匹配失败时 AI 请求翻倍**：`cxai_getAnswer` 的 else 分支调用 `_doAILogic` 后未 `return`，下方 `if (!requestCompleted)` 兜底又调一次，同一题并发发出两个 AI 请求。已补 `return`。
+- **修复手机版测验（`cxai_startDoQuizTimu`）case 5 重复推进下一题**：去掉多余的重复 `setTimeout`。
+- **修复知识图谱任务永远不被处理**：`cxai_missonStart` 里 `knowledgeGraph` 判断写在 `case "video"` 内部，条件恒为假；现提升为独立的 `case`，并补充 `module` 级判断，`cxai_missonKnowledgeGraph` 不再是无用代码。
+- **补齐多处失败兜底，避免静默卡死**：
+  - 视频弹题 `cxai_handleVideoQuiz` 增加 `.catch`：搜题失败时记录失败次数并关闭弹题，不再让视频卡在弹题层
+  - 桌面测验 `cxai_startDoWork` 五个题型全部补 `.catch`，单题失败会跳过而不中断整卷
+  - 读书/文档/阅读（`cxai_missonBook` / `cxai_missonDoucument` / `cxai_missonRead`）的 `$.ajax` 补 `error` 回调，请求失败也会切换下一个任务
+  - `cxai_toNext` 原本把失败重试逻辑写在 `return` 之后（死代码）且 promise 无 `.catch`；现改为真正的 `.catch` 重试，并为 `_curIndex=-1` 增加防护
+- README 修正 AI Provider 说明：实际只支持 OpenAI 兼容接口，移除不再存在的“文心一言 ERNIE”描述。
 
 ### v1.3.4
 - **修复作业答题重复推进下一题**：`cxai_doHomeWork` 单选/多选/填空/判断/简答/写作/翻译/default 七个分支的 `.then()` 回调里，分支内已经推进了下一题，末尾又无条件再推进一次，导致同一道题被并发处理两遍、API/题库请求翻倍（N1 免费额度被白烧一半）、两个循环抢着点选项。现已去掉多余的重复推进，每题只推进一次。

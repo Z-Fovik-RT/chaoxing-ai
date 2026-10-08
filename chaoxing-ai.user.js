@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.4
+// @version      1.3.5
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -5138,6 +5138,8 @@ function cxai_toNext() {
             catch (_) { return null; }
         })();
         let _curIndex = _t.findIndex((item) => item['curid'] == _curChaterId)
+        // 找不到当前章节时从列表头开始，避免 _t[-1] 取到 undefined 后崩溃
+        if (_curIndex < 0) _curIndex = 0
         for (_curIndex; _curIndex < _t.length - 1; _curIndex++) {
             // 当前章节仍标记为待完成，但章节内已无更多页面（hasNext=false 已在前面判定过）
             // 此分支保留作为兜底：万一 detectSubTabPosition 漏检，仍尝试调用一次
@@ -5169,7 +5171,7 @@ function cxai_toNext() {
             }
         }
         cxai_logger('此课程处理完毕', 'green')
-        return
+    }).catch((err) => {
         cxai_logger('获取课程列表失败: ' + (err && err.message || err || '未知错误') + '，5秒后重试', 'red')
         setTimeout(cxai_toNext, 5000)
     })
@@ -5189,6 +5191,11 @@ function cxai_missonStart() {
         _type = cxai_mlist[0]['property']["module"]
     }
     switch (_type) {
+        case "knowledgeGraph":
+        case "knowledge_graph":
+            cxai_logger('开始处理知识图谱', 'purple')
+            cxai_missonKnowledgeGraph(_dom, _task)
+            break
         case "video":
             if (cxai_mlist[0]['property']['module'] === 'insertvideo') {
                 cxai_logger('开始处理视频', 'purple')
@@ -5198,7 +5205,7 @@ function cxai_missonStart() {
                 cxai_logger('开始处理音频', 'purple')
                 cxai_missonVideo(_dom, _task)
                 break
-            } else if (_type === 'knowledgeGraph' || _type === 'knowledge_graph') {
+            } else if (cxai_mlist[0]['property']['module'] === 'knowledgeGraph' || cxai_mlist[0]['property']['module'] === 'knowledge_graph') {
                 cxai_logger('开始处理知识图谱', 'purple')
                 cxai_missonKnowledgeGraph(_dom, _task)
                 break
@@ -5455,6 +5462,13 @@ function cxai_missonVideo(dom, obj) {
             if (submitBtn) submitBtn.click();
             var closeBtn = container.querySelector('.ans-videoquiz-close, a[title=关闭]');
             if (closeBtn) closeBtn.click();
+        }).catch(function (_e) {
+            // 暂停/题库失败/AI失败/垃圾答案：记录失败次数并关闭弹题，避免视频卡死在弹题层
+            cxai_logger('视频弹题搜题失败，跳过', 'orange');
+            if (!window._cxaiFailedVideoQuizzes[quizText]) window._cxaiFailedVideoQuizzes[quizText] = 0;
+            window._cxaiFailedVideoQuizzes[quizText]++;
+            var closeBtn = container.querySelector('.ans-videoquiz-close, a[title=关闭]');
+            if (closeBtn) closeBtn.click();
         });
         return true;
     }
@@ -5525,6 +5539,10 @@ function cxai_missonBook(dom, obj) {
             cxai_switchMission()
             return
         },
+        error: function () {
+            cxai_logger('读书：' + name + '请求失败,跳过。', 'red')
+            cxai_switchMission()
+        },
     })
 }
 
@@ -5559,6 +5577,10 @@ function cxai_missonDoucument(dom, obj) {
             }
             cxai_switchMission()
             return
+        },
+        error: function () {
+            cxai_logger('文档：' + name + '请求失败,跳过。', 'red')
+            cxai_switchMission()
         },
     })
 
@@ -5595,6 +5617,10 @@ function cxai_missonRead(dom, obj) {
             }
             cxai_switchMission()
             return
+        },
+        error: function () {
+            cxai_logger('阅读：' + name + '请求失败,跳过。', 'red')
+            cxai_switchMission()
         }
     })
 }
@@ -6281,7 +6307,6 @@ function cxai_startDoQuizTimu(index, TimuList) {
                 // cxaiCfg.sub = 0
                 cxai_logger('此类型题目无法区分单/多选，请手动选择答案', 'red')
                 setTimeout(() => { cxai_startDoQuizTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
-                setTimeout(() => { cxai_startDoQuizTimu(index + 1, TimuList) }, cxaiCfg.time)
             }).catch((_e) => {
                 _cxaiQuizSkipped++;
                 cxai_logger('搜题失败，跳过此题', 'orange')
@@ -9929,6 +9954,8 @@ function _doRequest(url, headers, body, format) {
                 } else {
                     _doAILogic(_cfg.key, _cfg.model);
                 }
+                // 已进入 AI 分支（或已 reject），直接结束回调，避免下方兜底再次调用 _doAILogic 造成并发双请求
+                return;
 
             }
 
@@ -10108,6 +10135,10 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                     $(_answerTmpArr[_i]).parent().click();
                                 }
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
+            }).catch((_e) => {
+                _cxaiDesktopSkipped++;
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             });
             break;
         }
@@ -10160,6 +10191,10 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                     $(TiMuList[c]).find('.Zy_ulTop').parent().find('#answer' + id).val(_a.join(""))
                 }
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
+            }).catch((_e) => {
+                _cxaiDesktopSkipped++;
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             });
             break;
         }
@@ -10179,6 +10214,10 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                         $(t).find('textarea').html('<p>' + _answerList[i] + '</p>')
                     }, 300)
                 })
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
+            }).catch((_e) => {
+                _cxaiDesktopSkipped++;
+                cxai_logger('搜题失败，跳过此题', 'orange')
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             });
             break;
@@ -10212,7 +10251,12 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 setTimeout(() => {
                     cxai_startDoWork(index, doms, c + 1, TiMuList);
                 }, cxaiCfg.time);
+            }).catch((_e) => {
+                _cxaiDesktopSkipped++;
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             });
+            break;
         }
         case 4: {
             let _textareaLista = $(TiMuList[c]).find('.Zy_ulTk .XztiHover1')
@@ -10228,6 +10272,10 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                         $(t).find('textarea').html('<p>' + _answerList[i] + '</p>')
                     }, 300)
                 })
+                setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
+            }).catch((_e) => {
+                _cxaiDesktopSkipped++;
+                cxai_logger('搜题失败，跳过此题', 'orange')
                 setTimeout(() => { cxai_startDoWork(index, doms, c + 1, TiMuList) }, cxaiCfg.time)
             });
             break;
@@ -10268,7 +10316,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.4';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.5';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
