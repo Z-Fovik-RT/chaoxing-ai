@@ -85,5 +85,11 @@ T('cxai_missonExam 入口有暂停检查', /function cxai_missonExam\(\) \{\s*if
 const doHomeWork = src.slice(src.indexOf('function cxai_doHomeWork('), src.indexOf('var _cxaiAntiSleepStarted'));
 T('作业流 cxai_getAnswer(...).then 均带 .catch', (doHomeWork.match(/cxai_getAnswer\(/g) || []).length <= (doHomeWork.match(/\.catch\(/g) || []).length, true);
 
+// ---- 12. v1.3.7 日志整洁性 ----
+T('updateLogEntry 刷新时间戳并把行移到底部（阅读顺序=时间顺序）', src.includes("timeEl.textContent = new Date().toLocaleTimeString()") && src.includes('_panel.appendChild(el)'), true);
+T('相似度匹配失败日志降级到 console', /if \(!silent\) console\.log\('\[AI智脑Pro\] 相似度匹配: 所有选项相似度均低于阈值/.test(src), true);
+T('答题节奏提示每会话只打一次', src.includes('!window._cxaiPaceLogged'), true);
+T('删除重复的 题库命中<题目原文> 日志行', src.includes("cxai_logger('题库命中: ' + _qText"), false);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

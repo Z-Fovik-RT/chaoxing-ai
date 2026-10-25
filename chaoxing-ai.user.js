@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.6
+// @version      1.3.7
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -2674,7 +2674,7 @@ function cxai_findBestFuzzyMatch(optionTexts, aiAnswer, threshold, silent) {
         if (!silent) cxai_logger('相似度匹配: 最佳匹配项[' + bestIndex + '] 相似度=' + (bestScore * 100).toFixed(1) + '%', 'blue');
         return bestIndex;
     }
-    if (!silent) cxai_logger('相似度匹配: 所有选项相似度均低于阈值(' + (threshold * 100) + '%)，最高=' + (bestScore * 100).toFixed(1) + '%', 'orange');
+    if (!silent) console.log('[AI智脑Pro] 相似度匹配: 所有选项相似度均低于阈值(' + (threshold * 100) + '%)，最高=' + (bestScore * 100).toFixed(1) + '%');
     return -1;
 }
 
@@ -4959,6 +4959,16 @@ function cxai_updateLogEntry($p, str, color) {
     if (msgEl) {
         msgEl.style.color = c;
         msgEl.innerHTML = '<span class="cxai-log-msg">' + cxai_escapeHtml(str) + '</span>';
+        // 刷新为真实完成时间，并把该行移到日志底部：答案/错误出现在"题库命中"等过程行之后，阅读顺序与时间顺序一致
+        try {
+            var timeEl = el.querySelector('.cxai-log-time');
+            if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+            var _panel = el.parentNode;
+            if (_panel && _panel.appendChild) {
+                _panel.appendChild(el);
+                _panel.scrollTop = _panel.scrollHeight;
+            }
+        } catch (_) { /* empty */ }
     }
 }
 
@@ -9484,11 +9494,12 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
     }
     cxai_logger(_qPrefix + '题目:' + _display, 'pink')
     cxaiCfg._lastAnswerIsAi = false;  // 默认按题库节奏；若本次由 AI 命中，_handleResponse 会置为 true
-    // 答题节奏提示（仅当用户自定义了题库/AI 间隔且与默认值不同时显示，避免刷屏）
+    // 答题节奏提示（仅本次会话首次提示一次，用户已知道自己设了什么，逐题重复纯属刷屏）
     var _bankSec = (parseFloat(localStorage.getItem('cxaiSetting.time')) || 2.5)
     var _aiSec = (parseFloat(localStorage.getItem('cxaiSetting.aiTime')) || 2.5)
-    if (_bankSec !== 2.5 || _aiSec !== 2.5) {
-        cxai_logger(_qPrefix + '答题节奏：题库' + _bankSec + '秒 | AI' + _aiSec + '秒', 'gray')
+    if ((_bankSec !== 2.5 || _aiSec !== 2.5) && !window._cxaiPaceLogged) {
+        window._cxaiPaceLogged = true;
+        cxai_logger(_qPrefix + '答题节奏：题库' + _bankSec + '秒 | AI' + _aiSec + '秒（仅提示一次）', 'gray')
     }
     // 在日志中插入一条 "AI 思考中..." 占位行, 拿到响应后原地替换为答案/错误, 避免独立提示框反复出现/消失
     let _thinkingHtml = 'AI 思考中...' + (retryCount > 0 ? '（第' + (retryCount + 1) + '次）' : '')
@@ -10039,9 +10050,8 @@ function _doRequest(url, headers, body, format) {
 
                 }
 
-                // 在侧边栏显示最终选中的答案文本
+                // 在侧边栏显示最终选中的答案文本（题目原文已在上方打过，不再重复）
                 cxai_logger('✅ 题库选中: ' + displayAnswer.slice(0, 50), 'green');
-                cxai_logger('题库命中: ' + _qText.slice(0, 30), 'green');
 
                 _handleResponse(displayAnswer, true);
 
@@ -10418,7 +10428,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.6';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.7';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
