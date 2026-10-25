@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.5
+// @version      1.3.6
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -2360,6 +2360,8 @@ function cxaiExtractImages(htmlStr) {
 function cxaiMatchByLetter(answerStr, optionCount) {
     if (!answerStr || !optionCount) return -1;
     var s = answerStr.replace(/[\s\u3000]+/g, '').trim();
+    // 答案含中文时，其中的字母多为术语的一部分（如 "GB2312"、"ABC编码"），不当作选项字母
+    if (/[\u4e00-\u9fa5]/.test(s)) return -1;
     var m = s.match(/([A-Ga-g])(?=[^A-Za-z\u4e00-\u9fa5]*$)/);
     if (!m) {
         m = s.match(/[\u201c\u201d\u2018\u2019\u300c]([A-Ga-g])[\u201c\u201d\u2018\u2019\u300d]/);
@@ -2381,6 +2383,8 @@ function cxaiMatchByLetter(answerStr, optionCount) {
 function cxaiMatchMultipleByLetter(answerStr, optionCount) {
     if (!answerStr || !optionCount) return [];
     var s = answerStr.replace(/[\s\u3000]+/g, '').trim();
+    // 答案含中文时字母多为术语的一部分（如 "ABC编码"），不当作选项字母（题库字母串不会带中文）
+    if (/[\u4e00-\u9fa5]/.test(s)) return [];
     var letters = s.match(/[A-Ga-g]/g);
     if (!letters || letters.length < 2) return [];
     var indices = [];
@@ -2629,11 +2633,18 @@ function cxai_normalizePunct(s) {
     return r;
 }
 
-// 答案文本归一化：全角→半角 + 常见技术后缀 stripping
+// 答案文本归一化：全角→半角（用于文本匹配；不做后缀剥离，避免"存储技术"≠"存储方式"被强行视为相等）
 function cxai_normalizeAnswer(s) {
     if (!s) return '';
     var r = cxai_normalizePunct(String(s));
-    // 去掉末尾常见技术冗余后缀（方式/方法/技术/协议/机制）
+    return r.toLowerCase().replace(/[\s　]+/g, '').trim();
+}
+
+// 相似度匹配专用归一化：在文本归一化基础上剥掉常见技术后缀（方式/方法/技术/协议/机制），
+// 只用于模糊匹配放宽容差，绝不用于精确相等判断
+function cxai_normalizeAnswerLoose(s) {
+    var r = cxai_normalizeAnswer(s);
+    if (!r) return r;
     var _sufs = ['方式', '方法', '技术', '协议', '机制'];
     for (var i = 0; i < _sufs.length; i++) {
         var _suf = _sufs[i];
@@ -2642,17 +2653,17 @@ function cxai_normalizeAnswer(s) {
             break;
         }
     }
-    return r.toLowerCase().replace(/[\s　]+/g, '').trim();
+    return r;
 }
 
 function cxai_findBestFuzzyMatch(optionTexts, aiAnswer, threshold, silent) {
     if (!cxai_isFuzzyMatchEnabled()) return -1;
     if (!aiAnswer || !optionTexts || optionTexts.length === 0) return -1;
     threshold = (threshold !== undefined) ? threshold : 0.5;
-    var ansNorm = cxai_normalizeAnswer(aiAnswer);
+    var ansNorm = cxai_normalizeAnswerLoose(aiAnswer);
     var bestIndex = -1, bestScore = 0;
     for (var i = 0; i < optionTexts.length; i++) {
-        var optNorm = cxai_normalizeAnswer(optionTexts[i].replace(/^[A-Z]\s*/, ''));
+        var optNorm = cxai_normalizeAnswerLoose(optionTexts[i].replace(/^[A-Z]\s*/, ''));
         var score = cxai_stringSimilarity(optNorm, ansNorm);
         if (score > bestScore) {
             bestScore = score;
@@ -2677,10 +2688,10 @@ function cxai_findFuzzyMatchMultiple(optionTexts, aiAnswer, threshold) {
     for (var p = 0; p < parts.length; p++) {
         var part = parts[p].trim();
         if (!part) continue;
-        var partNorm = cxai_normalizeAnswer(part);
+        var partNorm = cxai_normalizeAnswerLoose(part);
         var bestIndex = -1, bestScore = 0;
         for (var i = 0; i < optionTexts.length; i++) {
-            var optNorm = cxai_normalizeAnswer(optionTexts[i].replace(/^[A-Z]\s*/, ''));
+            var optNorm = cxai_normalizeAnswerLoose(optionTexts[i].replace(/^[A-Z]\s*/, ''));
             var score = cxai_stringSimilarity(optNorm, partNorm);
             if (score > bestScore) {
                 bestScore = score;
@@ -2738,6 +2749,12 @@ function cxai_applyRateToCurrentMedia() {
 function cxai_parseJudgeAnswer(agrs) {
     if (!agrs) return null;
     var s = agrs.replace(/[。，.,!！\s]/g, '').toLowerCase();
+    // 含中文的答案（如 "这个说法是正确的"）只按中文词判断，避免英文术语里的 t/f/b 干扰
+    if (/[\u4e00-\u9fa5]/.test(s)) {
+        if (/错误|否|不正确|不对|错/.test(s)) return 'false';
+        if (/正确|是|对/.test(s)) return 'true';
+        return null;
+    }
     var trueWords = ['正确', '是', '对', '√', 't', 'true', 'ri', 'right', 'yes', 'a'];
     var falseWords = ['错误', '否', '错', '×', 'f', 'false', 'wr', 'wrong', 'no', 'b'];
     // 精确匹配
@@ -2747,12 +2764,14 @@ function cxai_parseJudgeAnswer(agrs) {
     for (var i = 0; i < falseWords.length; i++) {
         if (s === falseWords[i]) return 'false';
     }
-    // 包含匹配（优先判断"错"避免"正确的"误判——先检查否定词）
-    for (var i = 0; i < falseWords.length; i++) {
-        if (s.indexOf(falseWords[i]) !== -1) return 'false';
-    }
-    for (var i = 0; i < trueWords.length; i++) {
-        if (s.indexOf(trueWords[i]) !== -1) return 'true';
+    // 纯英文短答案（≤5字符）才做包含匹配，长句多为解释性文本不再猜
+    if (s.length <= 5) {
+        for (var i = 0; i < falseWords.length; i++) {
+            if (s.indexOf(falseWords[i]) !== -1) return 'false';
+        }
+        for (var i = 0; i < trueWords.length; i++) {
+            if (s.indexOf(trueWords[i]) !== -1) return 'true';
+        }
     }
     return null;
 }
@@ -5381,7 +5400,6 @@ function cxai_missonVideo(dom, obj) {
                     cxai_logger('视频弹题已处理', 'blue');
                 }
             }, 5000);
-
             media.addEventListener('ended', () => {
                 cxai_logger(`${name} - ${mediaType} 已播放完成`);
                 media.removeEventListener('pause', resume);
@@ -5401,10 +5419,10 @@ function cxai_missonVideo(dom, obj) {
         if (!container) return false;
         var submitBtn = doc.querySelector('#videoquiz-submit');
         if (!submitBtn) return false;
-        
+
         // 清除已失败记录
         if (!window._cxaiFailedVideoQuizzes) window._cxaiFailedVideoQuizzes = {};
-        
+
         var quizText = container.innerText || '';
         if (window._cxaiFailedVideoQuizzes[quizText] && window._cxaiFailedVideoQuizzes[quizText] >= 2) {
             cxai_logger('视频弹题已重试2次，跳过', 'orange');
@@ -5412,6 +5430,12 @@ function cxai_missonVideo(dom, obj) {
             if (closeBtn) closeBtn.click();
             return true;
         }
+
+        // 同一道弹题只允许一个在途请求：搜题耗时可能超过轮询间隔，防止重复请求/重复点选提交
+        if (!window._cxaiVideoQuizInFlight) window._cxaiVideoQuizInFlight = {};
+        if (window._cxaiVideoQuizInFlight[quizText]) return true;
+        window._cxaiVideoQuizInFlight[quizText] = true;
+        var _releaseQuiz = function () { window._cxaiVideoQuizInFlight[quizText] = false; };
         
         var optionNodes = Array.prototype.slice.call(container.querySelectorAll('.ans-videoquiz-opt label'));
         if (optionNodes.length === 0) return false;
@@ -5452,9 +5476,10 @@ function cxai_missonVideo(dom, obj) {
                 window._cxaiFailedVideoQuizzes[quizText]++;
                 var closeBtn = container.querySelector('.ans-videoquiz-close, a[title=关闭]');
                 if (closeBtn) closeBtn.click();
+                _releaseQuiz();
                 return;
             }
-            
+
             matchedIndexes.forEach(function (idx) {
                 optionNodes[idx].click();
             });
@@ -5462,6 +5487,7 @@ function cxai_missonVideo(dom, obj) {
             if (submitBtn) submitBtn.click();
             var closeBtn = container.querySelector('.ans-videoquiz-close, a[title=关闭]');
             if (closeBtn) closeBtn.click();
+            _releaseQuiz();
         }).catch(function (_e) {
             // 暂停/题库失败/AI失败/垃圾答案：记录失败次数并关闭弹题，避免视频卡死在弹题层
             cxai_logger('视频弹题搜题失败，跳过', 'orange');
@@ -5469,6 +5495,7 @@ function cxai_missonVideo(dom, obj) {
             window._cxaiFailedVideoQuizzes[quizText]++;
             var closeBtn = container.querySelector('.ans-videoquiz-close, a[title=关闭]');
             if (closeBtn) closeBtn.click();
+            _releaseQuiz();
         });
         return true;
     }
@@ -6170,7 +6197,7 @@ function cxai_startDoQuizTimu(index, TimuList) {
             break
         }
         case 4: { // 简答题或材料题
-            _question = cxai_buildPrompt({ type: '简答题或材料题', question: _question }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            _question = cxai_buildPrompt({ type: '简答题或材料题', question: _question })
 
             // 查找可能的编辑器区域（通过data-editorindex）
             let jdEditorBlocks = $(TimuList[index]).find('[data-editorindex]')
@@ -6603,6 +6630,9 @@ function cxai_doHomeWork(index, TiMuList) {
             });
             cxai_logger('自动答题成功，准备切换下一题', 'green');
             setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * textareaList.length);
+        }).catch((_e) => {
+            cxai_logger('搜题失败，跳过此题', 'orange')
+            setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
         });
     }
 
@@ -6785,7 +6815,7 @@ function cxai_doHomeWork(index, TiMuList) {
             break
         }
         case 2: {
-            _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)});
+            _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" });
             _textareaList = cxai_findAnswerTextareas($(TiMuList[index]));
             if (!_textareaList || _textareaList.length === 0) {
                 cxai_logger('未找到填空题输入区域，跳过此题', 'red');
@@ -6934,7 +6964,7 @@ function cxai_doHomeWork(index, TiMuList) {
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                 break
             }
-            let jdt5 = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            let jdt5 = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
             cxai_getAnswer(_type, jdt5).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
@@ -6949,6 +6979,9 @@ function cxai_doHomeWork(index, TiMuList) {
                 });
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle5.length);
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
             break
         }
@@ -6970,7 +7003,7 @@ function cxai_doHomeWork(index, TiMuList) {
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30)
                 break
             }
-            let jdt6 = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            let jdt6 = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
             cxai_getAnswer(_type, jdt6).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
@@ -6985,6 +7018,9 @@ function cxai_doHomeWork(index, TiMuList) {
                 });
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time + 200 * _answerEle6.length);
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
             });
             break
         }
@@ -7009,6 +7045,9 @@ function cxai_doHomeWork(index, TiMuList) {
                                 setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
                                 cxai_logger('使用富文本编辑器ID回答成功，准备切换下一题', 'green');
                                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time));
+                            }).catch((_e) => {
+                                cxai_logger('搜题失败，跳过此题', 'orange')
+                                setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, cxaiCfg.time)
                             });
                         } else {
                             cxai_logger('找到富文本编辑器但无法获取ID，改用普通方法', 'yellow');
@@ -7490,6 +7529,11 @@ function cxai_processSubQuestions(subIndex, $subQuestions, parentQuestion, getDe
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function cxai_missonExam() {
+    if (cxai_isPaused()) {
+        if (!_cxaiPauseMsgShown) { cxai_logger('⏸ 任务已暂停，5 秒后重试...', 'warn'); _cxaiPauseMsgShown = true; }
+        setTimeout(cxai_missonExam, 5000);
+        return;
+    }
     let $_examtable = $('.mark_table').find('.whiteDiv')
     // 复合大题（阅读理解/材料题）：先遍历子题，全部完成后再跳下一题
     let $subQuestions = $_examtable.find('.reading_answer')
@@ -7533,6 +7577,9 @@ function cxai_missonExam() {
                 setTimeout(() => { UE.getEditor(_id).setContent(agrs) }, 300)
             })
             cxai_logger('自动答题成功，准备切换下一题', 'green')
+            cxai_toNextExam()
+        }).catch((_e) => {
+            cxai_logger('搜题失败，跳过此题', 'orange')
             cxai_toNextExam()
         });
     }
@@ -7622,6 +7669,9 @@ function cxai_missonExam() {
                         }
                     }, 300)
                 }
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7683,6 +7733,9 @@ function cxai_missonExam() {
                     }
                     cxai_toNextExam()
                 }
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7720,6 +7773,9 @@ function cxai_missonExam() {
                 })
                 cxai_logger('自动答题成功，准备切换下一题', 'green')
                 cxai_toNextExam()
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7741,7 +7797,7 @@ function cxai_missonExam() {
 
                 $(_answerTmpArr[_answeredIdxE3]).parent().click()
                         }
-            _question = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)});
+            _question = cxai_buildPrompt({ type: '判断题', question: _question, answer_format: "只回答正确或错误" });
             $.each(_answerTmpArr, (i, t) => {
                 _a.push($(t).text().trim())
             });
@@ -7773,6 +7829,9 @@ function cxai_missonExam() {
                     cxai_logger('此题已作答，准备切换下一题', 'green')
                     cxai_toNextExam()
                 }
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7804,6 +7863,9 @@ function cxai_missonExam() {
                     }, 300 + i * 200);
                 });
                 setTimeout(cxai_toNextExam, 300 + 200 * _answerEle.length);
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7821,7 +7883,7 @@ function cxai_missonExam() {
                 cxai_toNextExam()
                 break
             }
-            let jdt = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            let jdt = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
             cxai_getAnswer(_qType, jdt).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
@@ -7835,6 +7897,9 @@ function cxai_missonExam() {
                     }, 300 + i * 200);
                 });
                 setTimeout(cxai_toNextExam, 300 + 200 * _answerEle.length);
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7852,7 +7917,7 @@ function cxai_missonExam() {
                 cxai_toNextExam()
                 break
             }
-            let jdt = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            let jdt = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
             cxai_getAnswer(_qType, jdt).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
@@ -7866,6 +7931,9 @@ function cxai_missonExam() {
                     }, 300 + i * 200);
                 });
                 setTimeout(cxai_toNextExam, 300 + 200 * _answerEle.length);
+            }).catch((_e) => {
+                cxai_logger('搜题失败，跳过此题', 'orange')
+                setTimeout(cxai_toNextExam, cxaiCfg.time)
             });
             break
         }
@@ -7891,6 +7959,9 @@ function cxai_missonExam() {
                             setTimeout(() => { UE.getEditor(editorId).setContent(agrs) }, 300);
                             cxai_logger('材料题自动答题成功，准备切换下一题', 'green');
                             cxai_toNextExam();
+                        }).catch((_e) => {
+                            cxai_logger('搜题失败，跳过此题', 'orange')
+                            setTimeout(cxai_toNextExam, cxaiCfg.time)
                         });
                     } else {
                         cxai_logger('找到材料题编辑器但无法获取ID，尝试其他方法', 'yellow');
@@ -7925,6 +7996,9 @@ function cxai_missonExam() {
                             setTimeout(() => { UE.getEditor(editorIdMatch).setContent(agrs) }, 300);
                             cxai_logger('使用脚本找到的编辑器ID回答成功，准备切换下一题', 'green');
                             cxai_toNextExam();
+                        }).catch((_e) => {
+                            cxai_logger('搜题失败，跳过此题', 'orange')
+                            setTimeout(cxai_toNextExam, cxaiCfg.time)
                         });
                     } else {
                         cxai_logger('无法找到有效的编辑器ID，跳过此题', 'red');
@@ -8234,7 +8308,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 cxai_logger(prefix + '未找到判断选项，跳过', 'red')
                 return nextSoon()
             }
-            $.each(_answerTmpArr, function (i, t) { _a.push($(t).text().trim()) }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            $.each(_answerTmpArr, function (i, t) { _a.push($(t).text().trim()) })
             for (let i = 0; i < _answerTmpArr.length; i++) {
                 let cls = $(_answerTmpArr[i]).parent().find('span').attr('class') || ''
                 if (cls.indexOf('check_answer') !== -1) {
@@ -8339,7 +8413,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 cxai_logger(prefix + '已作答，跳过', 'green')
                 return nextFast()
             }
-            let prompt = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            let prompt = cxai_buildPrompt({ type: typeName || '写作题', question: _question, answer_format: "用英文根据题目进行写作" })
             cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 $.each(_answerEle, function (i, t) {
@@ -8379,7 +8453,7 @@ function cxai_doExamPreview(index, TiMuList) {
                 cxai_logger(prefix + '已作答，跳过', 'green')
                 return nextFast()
             }
-            let prompt = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            let prompt = cxai_buildPrompt({ type: typeName || '翻译题', question: _question, answer_format: "中文英文互译" })
             cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
                 $.each(_answerEle, function (i, t) {
@@ -8812,7 +8886,8 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                     var _bankProcessed = cxaiProcessBankAnswer(icodefAnswers, options, type, questionText);
                     if (_bankProcessed !== null && _bankProcessed !== undefined) {
                         console.log('[AI智脑Pro] icodef 答案匹配成功，processed:', _bankProcessed);
-                        return resolve(icodefAnswers);
+                        // 把已验证的匹配结果直接带出去，外层不再重复跑一遍匹配
+                        return resolve({ __bankProcessed: true, result: _bankProcessed, source: 'icodef' });
                     }
                     console.log('[AI智脑Pro题库降级] icodef 命中但匹配失败，降级到 N1');
                 } else {
@@ -8849,7 +8924,6 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                 });
             }, 500);
         }
-
         // 4. 大学搜题酱（完整搬运官方接口：图片搜题/文字搜题/题目解答/书本答案）
         // 严格按照原扩展 requestByContext 格式：FILE=FormData, POST=x-www-form-urlencoded, 无需签名
         function _tryDxs() {
@@ -9074,9 +9148,14 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                     
                     if (answers && answers.length > 0) {
                         console.log('[题库命中] 大学搜题酱 题目解答:', JSON.stringify(answers).slice(0, 200));
-                        answers.__source = '大学搜题酱';
-                        // 命中后立即 resolve 外层 Promise，终止降级链路
-                        return resolve(answers);
+                        // 命中后先验证能否匹配到选项，匹配失败则继续降级到文字搜题
+                        var _solveProcessed = cxaiProcessBankAnswer(answers, options, type, questionText);
+                        if (_solveProcessed !== null && _solveProcessed !== undefined) {
+                            answers.__source = '大学搜题酱';
+                            // 命中且匹配成功，resolve 已验证结果，终止降级链路
+                            return resolve({ __bankProcessed: true, result: _solveProcessed, source: '大学搜题酱' });
+                        }
+                        console.log('[题库降级] 大学搜题酱 题目解答命中但匹配失败，尝试文字搜题');
                     }
                 }
                 
@@ -9101,8 +9180,12 @@ function cxaiQueryThirdPartyApi(questionText, options, type) {
                         
                         if (answers && answers.length > 0) {
                             console.log('[题库命中] 大学搜题酱 文字搜题:', JSON.stringify(answers).slice(0, 200));
-                            answers.__source = '大学搜题酱';
-                            return resolve(answers);
+                            // 同样先验证匹配，匹配失败视为未命中（交给外层 AI 兜底）
+                            var _searchProcessed = cxaiProcessBankAnswer(answers, options, type, questionText);
+                            if (_searchProcessed !== null && _searchProcessed !== undefined) {
+                                return resolve({ __bankProcessed: true, result: _searchProcessed, source: '大学搜题酱' });
+                            }
+                            console.log('[题库未命中] 大学搜题酱 文字搜题命中但匹配失败');
                         }
                     }
                     
@@ -9276,9 +9359,9 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type, questionText) {
             for (var pi = 0; pi < parts.length; pi++) {
                 var partText = parts[pi];
                 if (!partText) continue;
-                var partNorm = cxai_normalizeAnswer(partText);
+                var partNorm = cxai_normalizeAnswerLoose(partText);
                 for (var pj = 0; pj < optionsArr.length; pj++) {
-                    var optNorm = cxai_normalizeAnswer(optionsArr[pj].replace(/^[A-Z]\s*/, ''));
+                    var optNorm = cxai_normalizeAnswerLoose(optionsArr[pj].replace(/^[A-Z]\s*/, ''));
                     if (optNorm === partNorm || optNorm.indexOf(partNorm) !== -1 || partNorm.indexOf(optNorm) !== -1) {
                         if (targetIndices.indexOf(pj) === -1) targetIndices.push(pj);
                         break;
@@ -9300,6 +9383,7 @@ function cxaiProcessBankAnswer(answerList, optionsArr, type, questionText) {
             }
         }
         // 文本精确匹配（优先精确相等，其次选最短匹配项，避免命中"拼正确答案"干扰项）
+        // 注意：此处的相等/包含判断使用严格归一化（不剥技术后缀），避免"存储技术"误命中"存储方式"
         var found = false;
         if (optionsArr) {
             var _ansNorm = cxai_normalizeAnswer(ans);
@@ -9441,8 +9525,8 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
                 } else {
                     // 原地把 "AI 思考中" 行替换为重试提示, 不再追加新日志
                     cxai_updateLogEntry($thinkingLog, '请求超时未响应，正在重试...（第' + (retryCount + 1) + '次重试）', 'orange')
-                    // 重新发起请求(递归调用会创建新的 "思考中" 行)
-                    cxai_getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject)
+                    // 重新发起请求(递归调用会创建新的 "思考中" 行)；透传 rawMode / skipModelIdx，避免划词搜题与换模型重试退化为普通模式
+                    cxai_getAnswer(_t, _q, retryCount + 1, rawMode, skipModelIdx).then(resolve).catch(reject)
                 }
             }
         }, 200000 + _waitMs);  // 200秒 = 200000毫秒（大于题库45秒+AI120秒=165秒）
@@ -9639,18 +9723,25 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
             if (cxaiIsGarbageAnswer(_ans, isFromBank)) {
                 console.log('[AI智脑Pro] 拦截垃圾答案(' + (isFromBank ? '题库' : 'AI') + '): "' + _ans + '"');
                 if (isFromBank) {
-                    // 题库返回垃圾：不标记完成，让 AI 接管
+                    // 题库返回垃圾：真正转 AI 接管（与日志一致），而不是直接放弃此题
                     cxai_updateLogEntry($thinkingLog, '题库返回无意义答案，尝试AI...', 'orange');
-                    reject({ 'c': 0 });
+                    if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') === 'false') {
+                        requestCompleted = true;
+                        clearTimeout(longWaitTimer);
+                        cxai_updateLogEntry($thinkingLog, 'AI 答题已关闭，跳过此题', 'orange');
+                        reject({ 'c': 0, _aiDisabled: true });
+                    } else {
+                        _doAILogic(_cfg.key, _cfg.model);
+                    }
                 } else {
                     // AI 返回垃圾：重试一次，而非直接放弃
                     if (retryCount < 1) {
                         cxai_updateLogEntry($thinkingLog, 'AI返回无意义答案，自动重试中...', 'orange');
-                        // 不标记完成，让 cxai_getAnswer 递归重试
+                        // 不标记完成，让 cxai_getAnswer 递归重试；透传 rawMode / skipModelIdx
                         requestCompleted = true; // 先标记当前请求完成
                         clearTimeout(longWaitTimer);
                         setTimeout(function () {
-                            cxai_getAnswer(_t, _q, retryCount + 1).then(resolve).catch(reject);
+                            cxai_getAnswer(_t, _q, retryCount + 1, rawMode, skipModelIdx).then(resolve).catch(reject);
                         }, 1500);
                     } else {
                         // 重试仍失败，放弃
@@ -9871,9 +9962,15 @@ function _doRequest(url, headers, body, format) {
 
             var allAnswers = [];
             var n1Processed = null;
+            var bankProcessed = null;
 
+            // ★ 兼容题库链内层已验证结果（{ __bankProcessed: true, result: ... }）——外层不再重复跑匹配
+            if (tpAnswers && tpAnswers.__bankProcessed) {
+                bankProcessed = tpAnswers.result;
+                cxai_logger('📚 ' + (tpAnswers.source || '题库') + ' 命中', 'blue');
+            }
             // ★ 兼容 N1 已处理结果（{ __n1Processed: true, result: ... }）
-            if (tpAnswers && tpAnswers.__n1Processed) {
+            else if (tpAnswers && tpAnswers.__n1Processed) {
                 n1Processed = tpAnswers.result;
                 cxai_logger('📚 N1搜题命中', 'purple');
             } else if (tpAnswers && Array.isArray(tpAnswers)) {
@@ -9885,7 +9982,7 @@ function _doRequest(url, headers, body, format) {
                 cxai_logger('   原始答案: ' + _rawAnswers.slice(0, 100), 'gray');
             }
 
-            if (allAnswers.length === 0 && !n1Processed) {
+            if (allAnswers.length === 0 && !n1Processed && bankProcessed === null) {
 
                 // AI 答题总开关：关闭时不再 fallback AI，直接跳过
                 if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') === 'false') {
@@ -9901,7 +9998,12 @@ function _doRequest(url, headers, body, format) {
 
             var processed = null;
 
-            if (n1Processed !== null && n1Processed !== undefined) {
+            if (bankProcessed !== null && bankProcessed !== undefined) {
+
+                // 内层题库链已验证过匹配，直接复用，避免对同一批答案跑第二遍匹配
+                processed = bankProcessed;
+
+            } else if (n1Processed !== null && n1Processed !== undefined) {
 
                 processed = n1Processed;
 
@@ -10151,7 +10253,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                 mergedAnswers.push(answerText);
             });
             mergedAnswers = mergedAnswers.join("|");
-            _question = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" }).catch(function(e){console.warn("[AI智脑Pro] Promise异常:",e.message)})
+            _question = cxai_buildPrompt({ type: '多选题', question: _question, options: mergedAnswers.split('|'), answer_format: "用'|'分割多个答案" })
             cxai_getAnswer(_TimuType, _question).then((agrs) => {
                 agrs = String(agrs)
                 if (localStorage.getItem('cxaiSetting.alterTitle') === 'true') {
@@ -10316,7 +10418,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.5';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.6';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {

@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.3.5  
+**版本**：v1.3.6  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -128,6 +128,21 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 ---
 
 ## 更新日志
+
+### v1.3.6
+- **修复十处对 `cxai_buildPrompt()` 返回值调用 `.catch()` 导致的必崩死链**：该函数 v1.3.0 起返回普通对象而非 Promise，十处旧调用挂在答题主流程上，遇到对应题型当场抛 `TypeError` 且下一题永远不会被调度——桌面测验多选题、考试判断题、作业填空题、手机版测验简答题、作业/考试/整卷预览的写作与翻译题全部中招。已全部移除非法 `.catch`（附回归 harness：`node test-fixes.js`，30 项断言全过）。
+- **修复整卷预览判断题 `$.each(...).catch(...)` 崩溃**：`$.each` 返回 jQuery 集合没有 `.catch`，每道判断题在收集选项一步即崩。
+- **修复考试主路径（`cxai_missonExam`）全部 `.then()` 无 `.catch()` 导致的静默卡死**：单选/多选/填空/判断/简答/写作/翻译/材料题共 10 处补齐失败跳题逻辑；入口补暂停检查（此前暂停期间第一题 reject 后整条链断掉，恢复暂停也续不上）。
+- **修复作业流（`cxai_doHomeWork`）case 5/6/default 与 `handleNormalTextarea` 缺 `.catch()`**：搜题失败时不再卡住整份作业。
+- **修复题库命中后同一批答案跑两遍匹配**：icodef 命中后内层验证跑一遍 `cxaiProcessBankAnswer`、外层又完整跑一遍（日志看似重复查题）。现内层验证通过后以 `__bankProcessed` 信封直接带出已验证结果，外层复用不再重复匹配。
+- **修复大学搜题酱命中后不验证匹配直接采纳**：solve 与 wholesearch 两个接口命中后均先验证能否匹配到选项，匹配失败继续降级（题目解答 → 文字搜题 → AI 兜底），不再把匹配不上的答案硬塞给下游。
+- **修复三类答案误匹配**：
+  - `cxaiMatchByLetter`/`cxaiMatchMultipleByLetter`：答案含中文时其中的字母（"GB2312编码"、"ABC编码"）不再被当作选项字母，杜绝把术语字母当答案选错项
+  - `cxai_parseJudgeAnswer`：含中文的答案只按中文词判断；纯英文短答案（≤5字符）才做包含匹配，"IBM PC" 这类长术语不再因含 b/f 误判对错
+  - 归一化拆分为严格版（`cxai_normalizeAnswer`，用于精确相等判断，不再剥"方式/技术/协议"后缀，"存储技术"不再误命中"存储方式"）与宽松版（`cxai_normalizeAnswerLoose`，仅供模糊匹配放宽容差）
+- **修复题库返回垃圾答案时"假转 AI"**：日志说"尝试AI..."实际只 reject 跳题。现真正调用 `_doAILogic` 转 AI（AI 开关关闭时明确提示后跳过）。
+- **修复视频弹题重复请求**：搜题耗时超过 5 秒轮询间隔时同一道弹题被并发请求多次、答案返回后重复点选提交。增加按弹题文本的 in-flight 防护。
+- **修复重试丢失 `rawMode`/`skipModelIdx`**：超时重试与垃圾答案重试的递归调用现在透传这两个参数，划词搜题触发重试不再退化为普通模式（先查题库、答案被后处理链阉割），"换个模型重试"不再从头开始。
 
 ### v1.3.5
 - **修复桌面测验（`cxai_startDoWork`）判断题被处理两遍**：case 3 结尾漏写 `break`，控制流贯穿进 case 4 的填空题体，导致判断题会发两次 AI 请求并推进两次。已补上 `break`（附回归 harness：改前 `getAnswer=2`，改后 `getAnswer=1`）。
