@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.3.7  
+**版本**：v1.3.8  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -128,6 +128,10 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 ---
 
 ## 更新日志
+
+### v1.3.8
+- **@require 依赖全部迁移至国内镜像（npmmirror）**：jquery、sweetalert2、docx 原先分别走 cdnjs.cloudflare.com / unpkg.com，任一境外 CDN 拉取失败会导致**整个脚本主体不执行**（表现为：角标正常显示、脚本已启用、但 UI 完全不出现、控制台零 `[AI智脑Pro]` 输出）。全部改为 registry.npmmirror.com（四个库实测 200 可达），根治"CDN 抖一下、脚本全灭"。
+- **遇到"更新后 UI 消失"的应急排查法**已验证：扩展删除重装脚本即可恢复（重装会重新拉取全部 @require）。
 
 ### v1.3.7
 - **日志顺序修复**："答案:A" 之前显示在 "N1搜题命中" 上方且时间戳是旧时间——因为答案是原地替换"AI 思考中"占位行，位置/时间都停在占位行创建时刻。现在替换时**刷新时间戳并把该行移到日志底部**，阅读顺序与实际发生顺序一致。
