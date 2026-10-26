@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.10
+// @version      1.3.11
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -9238,10 +9238,9 @@ function cxaiIsGarbageAnswer(s, isFromBank) {
     // 纯前缀无内容（如 "暂无答案"、"见解析"）— 前缀已在 _handleResponse 中剥离，这里兜底
     if (/^(有正确答案|正确答案|暂无答案|暂无|见解析|见答案|见详解|答案略|参考答案|详见解析|请查看解析)$/i.test(str)) return true;
     // 精确匹配（必须完全等于这些才算垃圾，避免误杀含"略"、"无"的正常答案）
-    // 注意："正确/错误/对/错" 是判断题的合法答案，不能判为垃圾（按题型区分：仅选择题/填空语境下的孤词才可疑）
-    var _isJudgeType = cxai_currentQuestionMeta && /判断|是非/.test(cxai_currentQuestionMeta.typeName || '');
-    if (/^(略|无|不确定|不知道|不清楚|未填写|待补充|略略略?|不对|不正确|以上都[是对]|以上都[不没错]|都不是|都是)$/i.test(str)) return true;
-    if (!_isJudgeType && /^(错误的?|正确的?|对|错|是|否)$/i.test(str)) return true;
+    // 注意：判断题语境下的 "正确/错误/对/错" 是合法答案，但不在此处放行——由 _handleResponse 按
+    // "AI 可用则 AI 复核、AI 不可用则直接采用" 的策略决定，避免题库低质判断答案直接误导答题
+    if (/^(略|无|不确定|不知道|不清楚|未填写|待补充|略略略?|错误的?|正确的?|不对|不正确|以上都[是对]|以上都[不没错]|都不是|都是)$/i.test(str)) return true;
     // ★ 章节编号格式（如 "5.3 寻址方式"、"3.2.1 概述"、"2.5 总线"）— 题库返回了章节标题而非答案
     if (/^\d+\.\d+(\.[\d]+)?\s+[\u4e00-\u9fa5]/.test(str)) return true;
     // ★ AI 返回描述性文本而非答案（如 "一个正确的描述"、"直接解决"、"以这可能是正确的"）
@@ -9531,6 +9530,7 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
     return new Promise((resolve, reject) => {
         let _u = cxai_getCk('_uid') || cxai_getCk('UID')
         let requestCompleted = false;  // 标记请求是否已完成
+        let _bankJudgeFallback = null; // 题库判断题答案暂存（AI 复核失败时的兜底，见 _handleError）
         let longWaitTimer = null;  // 长时间等待定时器
 
         // 按用户设置的搜题间隔节流：计算本次需要等待的 ms，并预订下一次可发起时间
@@ -9758,18 +9758,47 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
             if (cxaiIsGarbageAnswer(_ans, isFromBank)) {
                 console.log('[AI智脑Pro] 拦截垃圾答案(' + (isFromBank ? '题库' : 'AI') + '): "' + _ans + '"');
                 if (isFromBank) {
-                    // 题库返回垃圾：真正转 AI 接管（与日志一致），而不是直接放弃此题
-                    // 注意：用 cxai_logger 新起一行，不要写在思考占位行上——占位行稍后会被"答案:X"覆盖，过程日志会凭空消失
-                    cxai_logger('⚠️ 题库答案(' + String(_ans).slice(0, 20) + ')不可用，转 AI 作答...', 'orange');
-                    if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') === 'false') {
+                    // 题库返回"正确/错误"等孤词（判断题题库答案质量差，经常与正确答案相反）：
+                    // AI 可用时交 AI 复核（AI 曾多次纠正题库的判断题错答），AI 不可用才直接采用题库答案
+                    var _isJudgeWord = /^(正确的?|错误的?|对|错|是|否|√|×)$/i.test(String(_ans).trim());
+                    if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') !== 'false' && _hasAI) {
+                        if (_isJudgeWord) {
+                            cxai_logger('📚 题库答案(' + String(_ans).slice(0, 10) + ')交 AI 复核...', 'orange');
+                        } else {
+                            cxai_logger('⚠️ 题库答案(' + String(_ans).slice(0, 20) + ')不可用，转 AI 作答...', 'orange');
+                        }
+                        // 暂存题库答案：AI 路径全部失败时由 _doAILogic 的最终兜底使用
+                        _bankJudgeFallback = { answer: _finalAns || _ans, display: displayAns };
+                        _doAILogic(_cfg.key, _cfg.model);
+                    } else if (_isJudgeWord && _hasQuestionBank) {
+                        // AI 不可用：判断题孤词是合法答案，直接采用（题库答案总比空着强）
                         requestCompleted = true;
                         clearTimeout(longWaitTimer);
-                        cxai_updateLogEntry($thinkingLog, 'AI 答题已关闭，跳过此题', 'orange');
-                        reject({ 'c': 0, _aiDisabled: true });
+                        cxai_updateLogEntry($thinkingLog, '答案:' + displayAns + '（题库，AI未启用）', 'purple');
+                        cxaiCfg._lastAnswerIsAi = false;
+                        resolve(_finalAns || _ans);
                     } else {
-                        _doAILogic(_cfg.key, _cfg.model);
+                        // 非 AI 场景下的真垃圾：转 AI 失败兜底
+                        cxai_logger('⚠️ 题库答案(' + String(_ans).slice(0, 20) + ')不可用，转 AI 作答...', 'orange');
+                        if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') !== 'false' && _hasAI) {
+                            _doAILogic(_cfg.key, _cfg.model);
+                        } else {
+                            requestCompleted = true;
+                            clearTimeout(longWaitTimer);
+                            cxai_updateLogEntry($thinkingLog, 'AI 答题已关闭，跳过此题', 'orange');
+                            reject({ 'c': 0, _aiDisabled: true });
+                        }
                     }
                 } else {
+                    // AI 返回判断题孤词（"正确/错误/对/错"）：这是判断题的合法答案，直接采用，不浪费重试
+                    if (_t === 3 && /^(正确的?|错误的?|对|错|是|否|√|×)$/i.test(String(_ans).trim())) {
+                        requestCompleted = true;
+                        clearTimeout(longWaitTimer);
+                        cxai_updateLogEntry($thinkingLog, '答案:' + displayAns, 'purple');
+                        cxaiCfg._lastAnswerIsAi = true;
+                        resolve(_finalAns);
+                        return;
+                    }
                     // AI 返回垃圾：重试一次，而非直接放弃
                     if (retryCount < 1) {
                         cxai_updateLogEntry($thinkingLog, 'AI返回无意义答案，自动重试中...', 'orange');
@@ -9827,6 +9856,17 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
         }
     function _handleError(msg, code) {
         if (requestCompleted) return;
+        // AI 全部失败时的兜底：若题库曾给出判断题答案（被送去 AI 复核），直接采用题库答案，不放弃此题
+        if (_bankJudgeFallback && _bankJudgeFallback.answer) {
+            requestCompleted = true;
+            clearTimeout(longWaitTimer);
+            cxai_updateLogEntry($thinkingLog, msg + '，采用题库答案: ' + _bankJudgeFallback.display, 'orange');
+            cxaiCfg._lastAnswerIsAi = false;
+            var _fb = _bankJudgeFallback.answer;
+            _bankJudgeFallback = null;
+            resolve(_fb);
+            return;
+        }
         requestCompleted = true;
         clearTimeout(longWaitTimer);
         cxai_updateLogEntry($thinkingLog, msg, 'red')
@@ -10453,7 +10493,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.10';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.11';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
