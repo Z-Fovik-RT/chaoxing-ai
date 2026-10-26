@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.12
+// @version      1.3.13
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -2846,6 +2846,62 @@ function cxai_isFuzzyMatchEnabled() {
 //  cxai_showBox 浮窗渲染/拖拽/设置面板，cxai_logger 日志输出
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Swal 弹窗 CSS 兜底：@require 的 sweetalert2.all 在部分扩展/浏览器组合下样式注入失败
+// （现象：弹窗 HTML 裸渲染占满整页——大对勾图标撑满一屏）。此处主动注入一份核心样式双保险。
+function cxaiEnsureSwalCss() {
+    try {
+        if (typeof document === 'undefined' || !document.head) return;
+        if (document.getElementById('cxai-swal-css-fallback')) return;
+        // 若 Swal 的 container 样式已生效（探测方式：临时查 head 中含 swal2-container 的 style），则跳过
+        var _hasSwalCss = false;
+        try {
+            var _styles = document.head.querySelectorAll('style');
+            for (var _si = 0; _si < _styles.length; _si++) {
+                if ((_styles[_si].textContent || '').indexOf('.swal2-container') !== -1) { _hasSwalCss = true; break; }
+            }
+        } catch (_e) { /* empty */ }
+        var css = '' +
+            '.swal2-container{display:grid;position:fixed;z-index:1060;top:0;right:0;bottom:0;left:0;box-sizing:border-box;grid-template-areas:"top-start top top-end" "center-start center center-end" "bottom-start bottom bottom-end";grid-template-rows:minmax(100%,auto) minmax(0,1fr);padding:.625em;overflow-x:hidden;transition:background-color .1s;background-color:rgba(0,0,0,.4);-webkit-overflow-scrolling:touch}' +
+            '.swal2-container.swal2-backdrop-show,.swal2-popup.swal2-noanimation{background:rgba(0,0,0,.4)}' +
+            '.swal2-container.swal2-top-end>.swal2-popup,.swal2-container.swal2-top>.swal2-popup{grid-column:2;grid-row:1;align-self:start;justify-self:center;margin:1.6em auto 0}' +
+            '.swal2-container.swal2-center>.swal2-popup{grid-column:2;align-self:center;justify-self:center;grid-row:2}' +
+            '.swal2-popup{display:none;position:relative;box-sizing:border-box;grid-template-columns:minmax(0,5em);width:32em;max-width:100%;padding:0 0 1.25em;border:none;border-radius:5px;background:#fff;color:#545454;font-family:inherit;font-size:1rem;text-align:center;box-shadow:0 0 20px rgba(0,0,0,.15);overflow-x:hidden}' +
+            '.swal2-popup.swal2-modal,.swal2-popup.swal2-show{display:grid}' +
+            '.swal2-title{position:relative;max-width:60%;margin:1.3em 1em .3em;padding:0;font-size:1.125em;font-weight:600;text-align:center;text-transform:none;word-wrap:break-word;color:#595959}' +
+            '.swal2-html-container{display:flex;position:relative;justify-content:center;margin:1em 1.6em .3em;padding:0;overflow:auto;color:#545454;font-size:1.125em;font-weight:400;line-height:normal;text-align:center;word-wrap:break-word;word-break:break-word;z-index:1}' +
+            '.swal2-actions{display:flex;z-index:1;box-sizing:border-box;flex-wrap:wrap;align-items:center;justify-content:center;width:auto;margin:1.25em auto 0;padding:0 1.6em}' +
+            '.swal2-actions:not(.swal2-loading) .swal2-styled[disabled]{opacity:.4}' +
+            '.swal2-styled{margin:.3125em;padding:.625em 1.1em;transition:box-shadow .1s;box-shadow:0 0 0 3px transparent;font-weight:500;border:0;border-radius:.25em;background:initial;color:#fff;font-size:1em;line-height:1.8125;cursor:pointer}' +
+            '.swal2-styled.swal2-confirm{background-color:#7066e0}' +
+            '.swal2-styled.swal2-cancel{background-color:#aaa}' +
+            '.swal2-styled:focus{box-shadow:0 0 0 3px rgba(112,102,224,.5);outline:none}' +
+            '.swal2-icon{display:flex;position:relative;box-sizing:content-box;justify-content:center;width:5em;height:5em;margin:2.5em auto .6em;border:.25em solid transparent;border-radius:50%;border-color:#4CAF50;font-family:inherit;line-height:5em;cursor:default;user-select:none}' +
+            '.swal2-icon.swal2-success{border-color:#a5dc86;color:#a5dc86}' +
+            '.swal2-icon.swal2-error{border-color:#f27474;color:#f27474}' +
+            '.swal2-icon.swal2-info{border-color:#3fc3ee;color:#3fc3ee}' +
+            '.swal2-icon.swal2-warning{border-color:#facea8;color:#f8bb86}' +
+            '.swal2-icon .swal2-icon-content{display:flex;align-items:center;font-size:3.75em}' +
+            '.swal2-success-circular-line,.swal2-success-ring{position:absolute;z-index:2;width:5em;height:5em;border-radius:50%;box-sizing:content-box}' +
+            '.swal2-success-ring{border:.25em solid rgba(165,220,134,.3)}' +
+            '.swal2-icon.swal2-success .swal2-success-circular-line{top:-.25em;left:-.25em;border:0.25em solid rgba(165,220,134,.3)}' +
+            '.swal2-success-corrections,.swal2-icon.swal2-success [class^=swal2-success-corrections]{position:absolute;width:.75em;height:2.125em;transform:rotate(45deg);border-radius:.1em;background:#a5dc86}' +
+            '.swal2-icon.swal2-success [class^=swal2-success-corrections][class$=corrections]{left:-.0625em;top:.4375em;transform:rotate(-45deg)}' +
+            '.swal2-icon.swal2-error [class^=swal2-x-mark-line]{display:block;position:absolute;width:2.6925em;height:.3125em;border-radius:.125em;background:#f27474;top:2.3125em;}' +
+            '.swal2-icon.swal2-error [class^=swal2-x-mark-line][class$=left]{left:1.0625em;transform:rotate(45deg)}' +
+            '.swal2-icon.swal2-error [class^=swal2-x-mark-line][class$=right]{right:1em;transform:rotate(-45deg)}' +
+            '.swal2-icon.swal2-info{border-color:#3fc3ee}.swal2-icon.swal2-info .swal2-icon-content{color:#3fc3ee}' +
+            '.swal2-icon.swal2-warning .swal2-icon-content{color:#f8bb86}' +
+            '.swal2-icon.swal2-success .swal2-icon-content{display:none}' +
+            '.swal2-container .swal2-popup{grid-template-areas:"icon" "title" "html" "actions"}' +
+            'body.swal2-height-auto{height:auto!important}';
+        var styleEl = document.createElement('style');
+        styleEl.id = 'cxai-swal-css-fallback';
+        styleEl.textContent = css;
+        document.head.appendChild(styleEl);
+        if (!_hasSwalCss) console.log('[AI智脑Pro] 已注入 Swal 弹窗样式兜底（@require 的样式注入未生效）');
+    } catch (e) { /* ignore */ }
+}
+
 function cxai_showBox() {
     // 默认使用当前 document，后续根据面板实际 DOM 位置更新
     var _boxDoc = document;
@@ -3354,6 +3410,7 @@ function cxai_showBox() {
                             }
                         } else {
                             if (typeof Swal !== 'undefined') {
+                                cxaiEnsureSwalCss();
                                 Swal.fire({
                                     title: '已是最新版本',
                                     text: '当前版本 ' + curVer + '（最新 ' + remoteVer + '）',
@@ -10494,7 +10551,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.12';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.13';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
@@ -10575,6 +10632,7 @@ function cxai_checkUpdate(force, onComplete) {
 }
 
 function cxai_showUpdateDialog(remoteVer) {
+    cxaiEnsureSwalCss();
     // 防重复弹窗：已有 Swal 在显示则跳过
     if (typeof Swal !== 'undefined' && Swal.isVisible()) return;
     if (typeof Swal === 'undefined') {
