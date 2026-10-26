@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.8
+// @version      1.3.9
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -2654,6 +2654,27 @@ function cxai_normalizeAnswerLoose(s) {
         }
     }
     return r;
+}
+
+// 填空题多空答案拆分：题库（N1/icodef/大学搜题酱）常用 "#" 分隔多空，AI 按 answer_format 用 "|"，
+// 题库也会返回整段带换行的文本。统一在此拆分：
+//  - 单空题（blankCount<=1）不拆，含 "#" 的答案原样返回（如 "C#语言"）
+//  - 多空题按 | / # / 换行 拆分，并去掉 "(1) "、"1、"、"第1空：" 这类序号前缀
+function cxaiSplitFillAnswers(answer, blankCount) {
+    var s = String(answer == null ? '' : answer).trim();
+    if (!s) return [];
+    if (!(blankCount > 1)) return [s];
+    var parts;
+    if (s.indexOf('|') !== -1) parts = s.split('|');
+    else if (s.indexOf('#') !== -1) parts = s.split('#');
+    else if (/\n/.test(s)) parts = s.split(/\n+/);
+    else parts = [s];
+    parts = parts.map(function (p) {
+        // 去序号前缀："(1) " / "（1）" / "（一）" / "1、" / "1." / "第1空：" 等
+        return p.replace(/^\s*(?:[（(]\s*(?:\d+|[一二三四五六七八九十]+)\s*[)）]|第\s*\d+\s*空\s*[:：]?|\d+)\s*[、.．:：]?\s*/, '').trim();
+    }).filter(function (p) { return p !== ''; });
+    // 空数已知且拆出片段数不足时不再硬凑，交给调用方的回退逻辑（answers[i] || answers[0]）
+    return parts;
 }
 
 function cxai_findBestFuzzyMatch(optionTexts, aiAnswer, threshold, silent) {
@@ -6057,7 +6078,7 @@ function cxai_startDoQuizTimu(index, TimuList) {
                         setTimeout(() => { cxai_startDoQuizTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
-                    let answers = agrs.split('|')
+                    let answers = cxaiSplitFillAnswers(agrs, $(TimuList[index]).find('[data-editorindex]').length)
                     let editorBlocks = $(TimuList[index]).find('[data-editorindex]')
 
                     $.each(editorBlocks, (i, block) => {
@@ -6132,7 +6153,7 @@ function cxai_startDoQuizTimu(index, TimuList) {
                         setTimeout(() => { cxai_startDoQuizTimu(index + 1, TimuList) }, (agrs && agrs._instant ? 30 : cxaiCfg.time))
                         return
                     }
-                    let answers = agrs.split('|')
+                    let answers = cxaiSplitFillAnswers(agrs, $(TimuList[index]).find('.blankList2 input').length)
                     let inputList = $(TimuList[index]).find('.blankList2 input')
                     $.each(inputList, (i, t) => {
                         setTimeout(() => {
@@ -6843,7 +6864,7 @@ function cxai_doHomeWork(index, TiMuList) {
                 setTimeout(() => { cxai_doHomeWork(index + 1, TiMuList) }, 30);
             } else {
                 cxai_getAnswer(_type, _question).then((agrs) => {
-                    let _answerTmpArr = (agrs || '').split('|');
+                    let _answerTmpArr = cxaiSplitFillAnswers(agrs, _textareaList.length);
                     $.each(_textareaList, (i, t) => {
                         let _currentId = $(t).attr('id') || $(t).attr('name');
                         let val = _answerTmpArr[i] !== undefined ? _answerTmpArr[i] : (_answerTmpArr[0] || agrs);
@@ -7325,7 +7346,7 @@ function cxai_doQuizPractice(index, questions, state) {
             }
         } else if (typeInfo.type === 2) {
             var $inputs = cxai_getQuizPracticeFillInputs($item)
-            var parts = $inputs.length === 1 ? [String(answer || '').trim()] : String(answer || '').split('|').map(function (s) { return s.trim() })
+            var parts = $inputs.length === 1 ? [String(answer || '').trim()] : cxaiSplitFillAnswers(answer, $inputs.length)
             if ($inputs.length > 1 && parts.length < $inputs.length) {
                 var ws = String(answer || '').split(/\s+/).filter(Boolean)
                 if (ws.length >= $inputs.length) parts = ws
@@ -7512,7 +7533,7 @@ function cxai_processSubQuestions(subIndex, $subQuestions, parentQuestion, getDe
             answer_format: subType === 2 ? "用'|'分割多个答案" : '用50字简要回答'
         })
         cxai_getAnswer(subType, tPrompt).then(function (agrs) {
-            var parts = subType === 2 ? String(agrs || '').split('|') : [agrs]
+            var parts = subType === 2 ? cxaiSplitFillAnswers(agrs, $subTextareas.length) : [agrs]
             $subTextareas.each(function (i3) {
                 var el = this
                 var _currentId = $(el).attr('id') || $(el).attr('name')
@@ -7776,7 +7797,7 @@ function cxai_missonExam() {
             _question = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" });
             // cxai_logger(_textareaList)
             cxai_getAnswer(_qType, _question).then((agrs) => {
-                let _answerTmpArr = agrs.split('|')
+                let _answerTmpArr = cxaiSplitFillAnswers(agrs, _textareaList.length)
                 $.each(_textareaList, (i, t) => {
                     let _id = $(t).attr('id')
                     setTimeout(() => { UE.getEditor(_id).setContent(_answerTmpArr[i]) }, 300)
@@ -8293,7 +8314,7 @@ function cxai_doExamPreview(index, TiMuList) {
             let prompt = cxai_buildPrompt({ type: '填空题', question: _question, answer_format: "用'|'分割多个答案" })
             cxai_getAnswer(_type, prompt).then(function (agrs) {
                 agrs = String(agrs)
-                let parts = (agrs || '').split('|')
+                let parts = cxaiSplitFillAnswers(agrs, _textareaList.length)
                 $.each(_textareaList, function (i, t) {
                     let _id = $(t).attr('id') || $(t).attr('name')
                     let val = parts[i] !== undefined ? parts[i] : (parts[parts.length - 1] || '')
@@ -10319,7 +10340,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                     let timuele = $(TiMuList[c]).find('.Zy_TItle.clearfix > div')
                     timuele.html(timuele.html() + '<p style="color:green;">📖 ' + cxaiGetDisplayAnswer(agrs, _a) + '</p>')
                 }
-                let _answerList = agrs.split("|")
+                let _answerList = cxaiSplitFillAnswers(agrs, _textareaList.length)
                 $.each(_textareaList, (i, t) => {
                     setTimeout(() => {
                         $(t).find('#ueditor_' + i).contents().find('.view p').html(_answerList[i]);
@@ -10377,7 +10398,7 @@ function cxai_startDoWork(index, doms, c, TiMuList) {
                     _cxaiDesktopSkipped++;
                     // cxaiCfg.sub = 0
                 }
-                let _answerList = agrs.split("|")
+                let _answerList = cxaiSplitFillAnswers(agrs, _textareaLista.length)
                 $.each(_textareaLista, (i, t) => {
                     setTimeout(() => {
                         $(t).find('#ueditor_' + i).contents().find('.view p').html(_answerList[i]);
@@ -10428,7 +10449,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.8';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.9';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {

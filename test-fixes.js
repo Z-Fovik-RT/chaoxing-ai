@@ -91,5 +91,16 @@ T('相似度匹配失败日志降级到 console', /if \(!silent\) console\.log\(
 T('答题节奏提示每会话只打一次', src.includes('!window._cxaiPaceLogged'), true);
 T('删除重复的 题库命中<题目原文> 日志行', src.includes("cxai_logger('题库命中: ' + _qText"), false);
 
+// ---- 13. 填空题多空答案拆分 ----
+const cxaiSplitFillAnswers = new Function(extractFn('cxaiSplitFillAnswers') + '; return cxaiSplitFillAnswers;')();
+T('填空 # 串三空拆分: "共享资源#相互合作#间断性"', cxaiSplitFillAnswers('共享资源#相互合作#间断性', 3), ['共享资源', '相互合作', '间断性']);
+T('填空 换行串拆分: "封闭性\\n可再现性"', cxaiSplitFillAnswers('封闭性\n可再现性', 2), ['封闭性', '可再现性']);
+T('填空 | 串拆分: "a|b|c"', cxaiSplitFillAnswers('a|b|c', 3), ['a', 'b', 'c']);
+T('填空去序号前缀: "(1) 封闭性#(2) 可再现性"', cxaiSplitFillAnswers('(1) 封闭性#(2) 可再现性', 2), ['封闭性', '可再现性']);
+T('单空不拆: "C#语言" 保持原样', cxaiSplitFillAnswers('C#语言', 1), ['C#语言']);
+T('单空不拆: 无空数信息时整串返回', cxaiSplitFillAnswers('共享资源#相互合作', undefined), ['共享资源#相互合作']);
+T('空答案返回空数组', cxaiSplitFillAnswers('', 3), []);
+T('填空流程已全部接入统一拆分函数', (src.match(/cxaiSplitFillAnswers\(/g) || []).length, 10); // 1 定义 + 9 调用
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -2,7 +2,7 @@
 
 > 学习通 AI + 题库双引擎自动答题 & 刷课辅助用户脚本
 
-**版本**：v1.3.8  
+**版本**：v1.3.9  
 **兼容**：Chrome / Edge / Firefox + [ScriptCat](https://scriptcat.org/) / [Tampermonkey](https://www.tampermonkey.net/)  
 **开源协议**：MIT
 
@@ -128,6 +128,10 @@ A: 国内访问 GitHub raw 不稳定，可多试几次，或等待脚本自动�
 ---
 
 ## 更新日志
+
+### v1.3.9
+- **修复填空题多空答案整串误填**：题库（N1/icodef/大学搜题酱）返回的多空答案用 `#` 或换行分隔，而 9 处填空流程（作业/考试/整卷预览/桌面测验/手机版测验/随堂练习/复合大题子题）全部只按 `|` 拆分——拆不开就把 "共享资源#相互合作#间断性" 整串塞进每个空。现新增统一拆分函数 `cxaiSplitFillAnswers`：多空题按 `|` / `#` / 换行拆分，并自动去掉 "(1) "、"1、"、"第1空：" 序号前缀；**单空题不拆**（"C#语言" 这类含 # 的答案保持原样）。
+- 附回归 harness：`node test-fixes.js` 42 项断言全过。
 
 ### v1.3.8
 - **@require 依赖全部迁移至国内镜像（npmmirror）**：jquery、sweetalert2、docx 原先分别走 cdnjs.cloudflare.com / unpkg.com，任一境外 CDN 拉取失败会导致**整个脚本主体不执行**（表现为：角标正常显示、脚本已启用、但 UI 完全不出现、控制台零 `[AI智脑Pro]` 输出）。全部改为 registry.npmmirror.com（四个库实测 200 可达），根治"CDN 抖一下、脚本全灭"。
