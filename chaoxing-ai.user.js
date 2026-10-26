@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.11
+// @version      1.3.12
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -4980,12 +4980,13 @@ function cxai_updateLogEntry($p, str, color) {
     if (msgEl) {
         msgEl.style.color = c;
         msgEl.innerHTML = '<span class="cxai-log-msg">' + cxai_escapeHtml(str) + '</span>';
-        // 刷新为真实完成时间，并把该行移到日志底部：答案/错误出现在"题库命中"等过程行之后，阅读顺序与时间顺序一致
+        // 刷新为真实完成时间，并把该行移到日志面板底部：阅读顺序与时间顺序一致
+        // 仅当父容器确实是日志面板时才移动，防止把行搬进其他容器把页面撑爆
         try {
             var timeEl = el.querySelector('.cxai-log-time');
             if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
             var _panel = el.parentNode;
-            if (_panel && _panel.appendChild) {
+            if (_panel && _panel.id === 'cxai-log-panel' && _panel.appendChild) {
                 _panel.appendChild(el);
                 _panel.scrollTop = _panel.scrollHeight;
             }
@@ -10493,7 +10494,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.11';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.12';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
