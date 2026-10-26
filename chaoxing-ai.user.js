@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.9
+// @version      1.3.10
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -9238,7 +9238,10 @@ function cxaiIsGarbageAnswer(s, isFromBank) {
     // 纯前缀无内容（如 "暂无答案"、"见解析"）— 前缀已在 _handleResponse 中剥离，这里兜底
     if (/^(有正确答案|正确答案|暂无答案|暂无|见解析|见答案|见详解|答案略|参考答案|详见解析|请查看解析)$/i.test(str)) return true;
     // 精确匹配（必须完全等于这些才算垃圾，避免误杀含"略"、"无"的正常答案）
-    if (/^(略|无|不确定|不知道|不清楚|未填写|待补充|略略略?|错误的?|正确的?|不对|不正确|以上都[是对]|以上都[不没错]|都不是|都是)$/i.test(str)) return true;
+    // 注意："正确/错误/对/错" 是判断题的合法答案，不能判为垃圾（按题型区分：仅选择题/填空语境下的孤词才可疑）
+    var _isJudgeType = cxai_currentQuestionMeta && /判断|是非/.test(cxai_currentQuestionMeta.typeName || '');
+    if (/^(略|无|不确定|不知道|不清楚|未填写|待补充|略略略?|不对|不正确|以上都[是对]|以上都[不没错]|都不是|都是)$/i.test(str)) return true;
+    if (!_isJudgeType && /^(错误的?|正确的?|对|错|是|否)$/i.test(str)) return true;
     // ★ 章节编号格式（如 "5.3 寻址方式"、"3.2.1 概述"、"2.5 总线"）— 题库返回了章节标题而非答案
     if (/^\d+\.\d+(\.[\d]+)?\s+[\u4e00-\u9fa5]/.test(str)) return true;
     // ★ AI 返回描述性文本而非答案（如 "一个正确的描述"、"直接解决"、"以这可能是正确的"）
@@ -9756,7 +9759,8 @@ function cxai_getAnswer(_t, _q, retryCount = 0, rawMode = false, skipModelIdx = 
                 console.log('[AI智脑Pro] 拦截垃圾答案(' + (isFromBank ? '题库' : 'AI') + '): "' + _ans + '"');
                 if (isFromBank) {
                     // 题库返回垃圾：真正转 AI 接管（与日志一致），而不是直接放弃此题
-                    cxai_updateLogEntry($thinkingLog, '题库返回无意义答案，尝试AI...', 'orange');
+                    // 注意：用 cxai_logger 新起一行，不要写在思考占位行上——占位行稍后会被"答案:X"覆盖，过程日志会凭空消失
+                    cxai_logger('⚠️ 题库答案(' + String(_ans).slice(0, 20) + ')不可用，转 AI 作答...', 'orange');
                     if (localStorage.getItem('cxaiSetting.aiAnswerEnabled') === 'false') {
                         requestCompleted = true;
                         clearTimeout(longWaitTimer);
@@ -10449,7 +10453,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.9';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.10';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {

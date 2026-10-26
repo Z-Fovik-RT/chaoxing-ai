@@ -67,7 +67,7 @@ T('外层识别 __bankProcessed 并跳过二次匹配', src.indexOf('tpAnswers._
 T('大学搜题酱命中前先验证匹配（solve 与 wholesearch 两处）', (src.match(/cxaiProcessBankAnswer\(answers, options, type, questionText\)/g) || []).length, 2);
 
 // ---- 7. 题库垃圾答案真转 AI ----
-T('题库垃圾答案分支调用 _doAILogic 真正转 AI', /题库返回垃圾：真正转 AI 接管[\s\S]{0,600}_doAILogic\(_cfg\.key, _cfg\.model\)/.test(src), true);
+T('题库垃圾答案分支调用 _doAILogic 真正转 AI', /不可用，转 AI 作答[\s\S]{0,800}_doAILogic\(_cfg\.key, _cfg\.model\)/.test(src), true);
 
 // ---- 8. 重试透传 rawMode / skipModelIdx ----
 T('超时重试透传 rawMode/skipModelIdx', src.includes('cxai_getAnswer(_t, _q, retryCount + 1, rawMode, skipModelIdx)'), true);
