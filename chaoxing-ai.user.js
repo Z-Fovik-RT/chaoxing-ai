@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通 · AI智脑Pro
 // @namespace    https://github.com/Z-Fovik-RT/chaoxing-ai
-// @version      1.3.13
+// @version      1.3.14
 // @description  学习通AI智脑Pro | AI+题库双引擎自动答题 | 视频音频倍速播放 | 字体解密 | 章节自动导航 | 粘贴限制绕过 | 题目一键复制 | 反检测增强 | 作业/考试全自动 | 截图OCR搜题
 // @author       Z-Fovik-RT
 // @homepage     https://github.com/Z-Fovik-RT/chaoxing-ai
@@ -2846,6 +2846,78 @@ function cxai_isFuzzyMatchEnabled() {
 //  cxai_showBox 浮窗渲染/拖拽/设置面板，cxai_logger 日志输出
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// 自制弹窗（全 px 内联样式，不依赖 Swal/@require CSS 注入，不受学习通页面 rem/em 缩放影响）
+// 用法：cxaiAlert({ title, text, icon: 'success'|'error'|'warning'|'info', confirmText, confirmColor })
+// 返回 Promise，resolve(true) 表示点击了确认按钮（兼容 Swal.fire(...).then(res => res.isConfirmed) 用法）
+function cxaiAlert(opts) {
+    opts = opts || {};
+    var doc;
+    try { doc = top.document; } catch (_) { doc = document; }
+    var win = doc.defaultView || window;
+    return new Promise(function (resolve) {
+        try {
+            // 已有弹窗则先移除，防重复
+            var _old = doc.getElementById('cxai-alert-overlay');
+            if (_old) _old.parentNode.removeChild(_old);
+
+            var _iconColor = { success: '#a5dc86', error: '#f27474', warning: '#f8bb86', info: '#3fc3ee' }[opts.icon] || '#3fc3ee';
+            var _iconChar = { success: '✓', error: '✕', warning: '!', info: 'i' }[opts.icon] || 'i';
+
+            var overlay = doc.createElement('div');
+            overlay.id = 'cxai-alert-overlay';
+            overlay.style.cssText = 'position:fixed;z-index:2147483647;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;';
+
+            var box = doc.createElement('div');
+            box.style.cssText = 'background:#fff;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.2);width:360px;max-width:calc(100vw - 40px);padding:28px 24px 20px;text-align:center;box-sizing:border-box;';
+
+            var iconEl = doc.createElement('div');
+            iconEl.style.cssText = 'width:64px;height:64px;line-height:64px;margin:0 auto 16px;border-radius:50%;background:' + _iconColor + ';color:#fff;font-size:34px;font-weight:bold;';
+            iconEl.textContent = _iconChar;
+
+            var titleEl = doc.createElement('div');
+            titleEl.style.cssText = 'font-size:18px;font-weight:600;color:#333;margin-bottom:10px;';
+            titleEl.textContent = opts.title || '提示';
+
+            var textEl = doc.createElement('div');
+            textEl.style.cssText = 'font-size:14px;color:#666;line-height:1.6;margin-bottom:22px;word-break:break-all;';
+            if (opts.html) textEl.innerHTML = opts.html;
+            else textEl.textContent = opts.text || '';
+
+            var btn = doc.createElement('button');
+            btn.style.cssText = 'min-width:120px;padding:10px 24px;border:none;border-radius:8px;background:' + (opts.confirmColor || '#7066e0') + ';color:#fff;font-size:15px;font-weight:500;cursor:pointer;';
+            btn.textContent = opts.confirmText || '好的';
+            btn.addEventListener('click', function () {
+                try { overlay.parentNode.removeChild(overlay); } catch (_) { /* empty */ }
+                resolve(true);
+            });
+
+            if (opts.showCancel) {
+                box.appendChild(iconEl); box.appendChild(titleEl); box.appendChild(textEl);
+                var btnRow = doc.createElement('div');
+                btnRow.style.cssText = 'display:flex;gap:12px;justify-content:center;';
+                var cancelBtn = doc.createElement('button');
+                cancelBtn.style.cssText = 'min-width:120px;padding:10px 24px;border:none;border-radius:8px;background:#aaa;color:#fff;font-size:15px;font-weight:500;cursor:pointer;';
+                cancelBtn.textContent = opts.cancelText || '稍后提醒';
+                cancelBtn.addEventListener('click', function () {
+                    try { overlay.parentNode.removeChild(overlay); } catch (_) { /* empty */ }
+                    resolve(false);
+                });
+                btnRow.appendChild(cancelBtn); btnRow.appendChild(btn);
+                box.appendChild(btnRow);
+            } else {
+                box.appendChild(iconEl); box.appendChild(titleEl); box.appendChild(textEl); box.appendChild(btn);
+            }
+            overlay.appendChild(box);
+            doc.body.appendChild(overlay);
+            win.setTimeout(function () { try { overlay.style.opacity = '1'; } catch (_) { /* empty */ } }, 0);
+        } catch (e) {
+            // 极端情况下兜底到原生弹窗
+            try { alert((opts.title || '') + '\n' + (opts.text || '')); } catch (_) { /* empty */ }
+            resolve(true);
+        }
+    });
+}
+
 // Swal 弹窗 CSS 兜底：@require 的 sweetalert2.all 在部分扩展/浏览器组合下样式注入失败
 // （现象：弹窗 HTML 裸渲染占满整页——大对勾图标撑满一屏）。此处主动注入一份核心样式双保险。
 function cxaiEnsureSwalCss() {
@@ -3377,11 +3449,7 @@ function cxai_showBox() {
                     var fn = (typeof unsafeWindow !== 'undefined' && unsafeWindow.cxai_checkUpdate)
                           || (typeof window !== 'undefined' && window.cxai_checkUpdate);
                     if (!fn) {
-                        if (typeof Swal !== 'undefined') {
-                            Swal.fire({ title: '检查更新功能尚未加载', icon: 'warning', confirmButtonText: '好的' });
-                        } else {
-                            alert('检查更新功能尚未加载');
-                        }
+                        cxaiAlert({ title: '检查更新功能尚未加载', icon: 'warning' });
                         return;
                     }
                     var curVer = (typeof unsafeWindow !== 'undefined' && unsafeWindow._CXAI_CUR_VER)
@@ -3397,30 +3465,9 @@ function cxai_showBox() {
                         if (hasUpdate) return; // cxai_showUpdateDialog 已弹出
                         if (typeof Swal !== 'undefined' && Swal.isVisible()) return; // 防重复
                         if (errMsg) {
-                            if (typeof Swal !== 'undefined') {
-                                Swal.fire({
-                                    title: '检查更新失败',
-                                    text: errMsg + '（可能是网络问题，GitHub 在国内访问不稳定）',
-                                    icon: 'error',
-                                    confirmButtonText: '好的',
-                                    confirmButtonColor: '#e74c3c'
-                                });
-                            } else {
-                                alert('检查更新失败：' + errMsg);
-                            }
+                            cxaiAlert({ title: '检查更新失败', text: errMsg + '（可能是网络问题，GitHub 在国内访问不稳定）', icon: 'error', confirmColor: '#e74c3c' });
                         } else {
-                            if (typeof Swal !== 'undefined') {
-                                cxaiEnsureSwalCss();
-                                Swal.fire({
-                                    title: '已是最新版本',
-                                    text: '当前版本 ' + curVer + '（最新 ' + remoteVer + '）',
-                                    icon: 'success',
-                                    confirmButtonText: '好的',
-                                    confirmButtonColor: '#4CAF50'
-                                });
-                            } else {
-                                alert('已是最新版本 v' + curVer);
-                            }
+                            cxaiAlert({ title: '已是最新版本', text: '当前版本 ' + curVer + '（最新 ' + remoteVer + '）', icon: 'success', confirmColor: '#4CAF50' });
                         }
                     });
                 });
@@ -10551,7 +10598,7 @@ try {
 
 // ===== 自动更新检查（脚本顶层，独立于主 IIFE，不受崩溃影响） =====
 var _CXAI_UPDATE_URL = 'https://raw.githubusercontent.com/Z-Fovik-RT/chaoxing-ai/main/chaoxing-ai.user.js';
-var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.13';
+var _CXAI_CUR_VER = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.14';
 var _CXAI_CHECK_INTERVAL = 24 * 3600 * 1000; // 24小时
 
 function _cxaiSemverCompare(a, b) {
@@ -10632,8 +10679,6 @@ function cxai_checkUpdate(force, onComplete) {
 }
 
 function cxai_showUpdateDialog(remoteVer) {
-    cxaiEnsureSwalCss();
-    // 防重复弹窗：已有 Swal 在显示则跳过
     if (typeof Swal !== 'undefined' && Swal.isVisible()) return;
     if (typeof Swal === 'undefined') {
         // Swal 不可用时 fallback 到简单弹窗
@@ -10642,21 +10687,20 @@ function cxai_showUpdateDialog(remoteVer) {
         }
         return;
     }
-    Swal.fire({
+    cxaiAlert({
         title: '发现新版本',
-        html: '<div style="text-align:left;padding:0 8px;">' +
-              '<p style="margin:4px 0;">当前版本：<b>' + _CXAI_CUR_VER + '</b></p>' +
-              '<p style="margin:4px 0;">最新版本：<b style="color:#4CAF50;">' + remoteVer + '</b></p>' +
-              '<p style="font-size:12px;color:#888;margin-top:8px;">建议更新以获取最新功能与修复</p>' +
+        html: '<div style="text-align:left;padding:0 4px;">' +
+              '<p style="margin:4px 0;font-size:14px;color:#555;">当前版本：<b>' + _CXAI_CUR_VER + '</b></p>' +
+              '<p style="margin:4px 0;font-size:14px;color:#555;">最新版本：<b style="color:#4CAF50;">' + remoteVer + '</b></p>' +
+              '<p style="font-size:12px;color:#999;margin-top:8px;">建议更新以获取最新功能与修复</p>' +
               '</div>',
         icon: 'info',
-        showCancelButton: true,
-        confirmButtonText: '立即更新',
-        cancelButtonText: '稍后提醒',
-        confirmButtonColor: '#4CAF50',
-        cancelButtonColor: '#aaa',
+        showCancel: true,
+        confirmText: '立即更新',
+        cancelText: '稍后提醒',
+        confirmColor: '#4CAF50'
     }).then(function(res) {
-        if (res.isConfirmed) {
+        if (res) {
             GM_openInTab(_CXAI_UPDATE_URL, { active: true });
         }
     });
@@ -10686,19 +10730,10 @@ GM_registerMenuCommand("检查更新", function() {
                 || '未知';
     cxai_checkUpdate(true, function(hasUpdate, remoteVer, errMsg) {
         if (hasUpdate) return; // cxai_showUpdateDialog 已弹出
-        if (typeof Swal !== 'undefined' && Swal.isVisible()) return; // 防重复
         if (errMsg) {
-            if (typeof Swal !== 'undefined') {
-                Swal.fire({ title: '检查更新失败', text: errMsg + '（GitHub 在国内访问不稳定）', icon: 'error', confirmButtonText: '好的', confirmButtonColor: '#e74c3c' });
-            } else {
-                alert('检查更新失败：' + errMsg);
-            }
+            cxaiAlert({ title: '检查更新失败', text: errMsg + '（GitHub 在国内访问不稳定）', icon: 'error', confirmColor: '#e74c3c' });
         } else {
-            if (typeof Swal !== 'undefined') {
-                Swal.fire({ title: '已是最新版本', text: '当前版本 ' + _curVer + '（最新 ' + remoteVer + '）', icon: 'success', confirmButtonText: '好的', confirmButtonColor: '#4CAF50' });
-            } else {
-                alert('已是最新版本 v' + _curVer);
-            }
+            cxaiAlert({ title: '已是最新版本', text: '当前版本 ' + _curVer + '（最新 ' + remoteVer + '）', icon: 'success', confirmColor: '#4CAF50' });
         }
     });
 });
